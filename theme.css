@@ -46,6 +46,8 @@
   --sw-off-ink:#B3A994;
   --sw-trip-tint:#FFF3D1; --sw-trip-line:#F7D57A;   /* 旅行中：外框淡蜂蜜色 */
   --sw-daily-tint:#EAF6EC; --sw-daily-line:#A9DDB4; /* 日常：外框淡綠色 */
+  /* 地圖上「我在這裡」的藍點 */
+  --me-dot:#3B82F6;
   /* 旅行包月曆：有旅行的日子墊一朵淡花 */
   --cal-flower:#FCE3A1;
   --cal-flower-c:#FFF1C9;

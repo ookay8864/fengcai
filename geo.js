@@ -83,6 +83,15 @@ function demoNearby(lat, lng) {
   return spot.pois.map(([name, type], i) => ({ id: 'demo-' + name, name, type, dist: 15 + i * 60 + Math.round(Math.random() * 30) }));
 }
 
+// 地圖用：看一下現在在哪（不會換模擬地點、可用 1 分鐘內的舊定位）
+export function peekPosition() {
+  if (isDemo()) { const i = parseInt(getSetting('demoI', '0'), 10) || 0, p = DEMO[(i + DEMO.length - 1) % DEMO.length]; return Promise.resolve({ lat: p.lat, lng: p.lng, acc: 10 }); }
+  return new Promise((res, rej) => {
+    if (!navigator.geolocation) return rej(new Error('no geo'));
+    navigator.geolocation.getCurrentPosition(p => res({ lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy) }), rej, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
+  });
+}
+
 // ---------- 取得目前位置 ----------
 export function getPosition() {
   if (isDemo()) return demoPos();

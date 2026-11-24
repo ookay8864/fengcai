@@ -241,7 +241,7 @@ function svgAdultInner(pts, info, style, W, H, seed, view) {
   const faded = pts.map((_, i) => (on(i) ? '' : mk(i))).join(''), active = pts.map((_, i) => (on(i) ? mk(i) : '')).join('');
   // 「全部」：每天的區域旁標「第 N 天」
   const pillBoxes = [];
-  const pills = all && !view.tags ? info.days.map((d, k) => {
+  const pills = all && !view.tags && !view.noPills ? info.days.map((d, k) => {
     const idx = pts.map((c, i) => (info.dayOf(c) === k ? i : -1)).filter(i => i >= 0);
     if (!idx.length) return '';
     const mx = idx.reduce((a, i) => a + xy[i][0], 0) / idx.length, my = idx.reduce((a, i) => a + xy[i][1], 0) / idx.length;
@@ -304,7 +304,21 @@ async function mountAMap(el, pts, info, opt) {
   el.innerHTML = '<div class="amap-box"></div>';
   const box = el.firstChild;
   const pos = pts.map(c => wgs2gcj(c.lng, c.lat));
-  const map = new AM.Map(box, { mapStyle: CONFIG.mapStyles[opt.style] || CONFIG.mapStyles.normal, zoom: 13, center: pos[0] || [114.0579, 22.5431], resizeEnable: true });
+  const mePos = () => (opt.me ? wgs2gcj(opt.me.lng, opt.me.lat) : null);
+  const map = new AM.Map(box, { mapStyle: CONFIG.mapStyles[opt.style] || CONFIG.mapStyles.normal, zoom: pos.length ? 13 : 15, center: pos[0] || mePos() || [114.0579, 22.5431], resizeEnable: true });
+  // 我的位置：藍點；右下角按鈕回到我的位置
+  let meMk = null;
+  const loc = document.createElement('button');
+  loc.className = 'map-loc'; loc.type = 'button'; loc.setAttribute('aria-label', '回到我的位置'); loc.hidden = true;
+  loc.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="currentColor"/><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  loc.onclick = () => { const p = mePos(); if (p) map.setZoomAndCenter(16, p); };
+  el.appendChild(loc);
+  const setMe = me => {
+    opt.me = me; const p = mePos(); if (!p) return;
+    if (!meMk) { meMk = new AM.Marker({ position: p, anchor: 'center', zIndex: 500, content: '<div class="me-dot"><i></i></div>' }); map.add(meMk); } else meMk.setPosition(p);
+    loc.hidden = false;
+    if (!pos.length) map.setZoomAndCenter(15, p);
+  };
   const on = i => opt.day == null || info.dayOf(pts[i]) === opt.day;
   const markers = pts.map((c, i) => {
     const m = new AM.Marker({ position: pos[i], anchor: 'center', zIndex: 120 + i });
@@ -350,6 +364,7 @@ async function mountAMap(el, pts, info, opt) {
     hideRoute: clearRoute,
     setStyle(s) { opt.style = s; map.setMapStyle(CONFIG.mapStyles[s] || CONFIG.mapStyles.normal); paint(); if (line) line.setOptions({ strokeColor: routeColor() }); },
     setDay(d) { opt.day = d; clearRoute(); paint(); fit(); },
+    setMe,
     destroy() { clearRoute(); try { map.destroy(); } catch (e) {} }
   };
   return ctl;
@@ -363,18 +378,18 @@ export async function mountMap(el, checkins, opt = {}) {
   opt.style = opt.style || 'normal';
   el.classList.add('mapwrap');
   if (opt.height) el.style.height = opt.height + 'px';
-  const none = { kind: 'none', info, connect() {}, hideRoute() {}, setStyle() {}, setDay(d) { opt.day = d; }, destroy() {} };
+  const none = { kind: 'none', info, connect() {}, hideRoute() {}, setStyle() {}, setDay(d) { opt.day = d; }, setMe() {}, destroy() {} };
 
-  if (getSetting('amapKey') && pts.length) {
+  if (getSetting('amapKey') && (pts.length || opt.wantMe)) {
     try { const ctl = await mountAMap(el, pts, info, opt); ctl.info = info; return ctl; } catch (e) { console.warn('高德地圖無法載入，改用插畫地圖', e); }
   }
-  if (!pts.length) { el.innerHTML = '<p class="map-empty">打卡之後，這裡會開出第一朵花</p>'; return none; }
+  if (!pts.length) { el.innerHTML = '<p class="map-empty">打卡之後，這裡會開出第一朵花<br><small>想看以前去過的地方，點上面的「全部足跡」</small></p>'; return none; }
 
   let stop = null, connected = false;
   const W = 360, H = opt.height ? Math.round(360 * opt.height / Math.max(300, el.clientWidth || 360)) : 280;
   const draw = () => {
     if (stop) stop();
-    el.innerHTML = svgAdult(pts, info, opt.style, W, Math.max(240, Math.min(H, 520)), opt.seed || 'fengcai', { day: opt.day });
+    el.innerHTML = svgAdult(pts, info, opt.style, W, Math.max(240, Math.min(H, 520)), opt.seed || 'fengcai', { day: opt.day, noPills: opt.noPills });
     const svg = el.querySelector('svg');
     if (connected) showRouteDone(svg); else hideRoute(svg);
     svg.querySelectorAll('.pick').forEach(g => g.addEventListener('click', () => { const c = pts.find(p => p.id === g.dataset.id); if (c && opt.onPick) opt.onPick(c); }));
@@ -388,6 +403,7 @@ export async function mountMap(el, checkins, opt = {}) {
     hideRoute() { connected = false; svg = draw(); },
     setStyle(s) { opt.style = s; svg = draw(); },
     setDay(d) { opt.day = d; connected = false; svg = draw(); },
+    setMe() {},
     destroy() { if (stop) stop(); }
   };
 }

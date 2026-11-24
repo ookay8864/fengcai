@@ -1,7 +1,7 @@
 // 蜂采 大人頁面
 import { CONFIG, getSetting, setSetting } from './config.js';
 import { store, ensureActiveTrip, getActiveId, setActiveId, askPersist, isKid, isAdult, findMergeTarget, getMode, startTrip, resumeTrip, endTrip, isDaily, moveDaysToTrip } from './store.js';
-import { getPosition, nearby, badgeOf, BADGES, shortType, isDemo, amapLink } from './geo.js';
+import { getPosition, peekPosition, nearby, badgeOf, BADGES, shortType, isDemo, amapLink } from './geo.js';
 import { compressImage, videoThumb, startRecorder, blobDims } from './media.js';
 import { mountMap, gardenSVG, dayInfo, defaultDay, markerSVG, markerNumSVG, whoText } from './map.js';
 import { allThemes, getTheme, themeIcon, itemIcon, ITEMS, GROUNDS, listCustom, saveCustom, deleteCustom } from './themes.js';
@@ -524,14 +524,14 @@ const mkIcon = (c, size = 34) => `<svg width="${size}" height="${size}" viewBox=
 const mapLegend = () => `<div class="legend mk-legend"><span>${mkIcon({ adult: true, kid: false }, 26)}大人打卡</span><span>${mkIcon({ adult: false, kid: true }, 26)}孩子蓋章</span><span>${mkIcon({ adult: true, kid: true }, 26)}一起打卡</span></div>`;
 
 // 把地圖放進 box，並綁好天數切換、當天清單、「正常／可愛」與「連起來」
-async function attachMap(box, checkins, height, seed, daily = false) {
+async function attachMap(box, checkins, height, seed, daily = false, extra = {}) {
   const info = dayInfo(checkins);
   let day = info.days.length ? defaultDay(info) : null, connected = false;
   const tabs = $('#daytabs'), list = $('#daylist'), conn = $('#conn');
   const resetConn = () => { connected = false; if (conn) conn.innerHTML = `${icon('flower')}連起來`; };
   const drawTabs = () => {
     if (!tabs) return;
-    tabs.innerHTML = info.days.length > 1 || info.days.length === 0 ? `<button data-dd="all" class="${day == null ? 'on' : ''}">全部</button>` : '';
+    tabs.innerHTML = info.days.length > 1 ? `<button data-dd="all" class="${day == null ? 'on' : ''}">全部</button>` : '';
     tabs.innerHTML += info.days.map((d, k) => { const [, m, dd] = d.split('-'); return `<button data-dd="${k}" class="${day === k ? 'on' : ''}">${daily ? `${m}/${dd}` : `第 ${k + 1} 天 <small>${m}/${dd}</small>`}</button>`; }).join('');
     tabs.querySelectorAll('[data-dd]').forEach(b => b.onclick = () => setDay(b.dataset.dd === 'all' ? null : +b.dataset.dd));
     tabs.querySelector('.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
@@ -544,7 +544,7 @@ async function attachMap(box, checkins, height, seed, daily = false) {
   };
   const setDay = k => { day = k; resetConn(); curMap && curMap.setDay(k); drawTabs(); drawList(); };
   curMap = await mountMap(box, checkins, {
-    style: mapStyle(), height, seed, day,
+    ...extra, style: mapStyle(), height, seed, day,
     onPick: c => { if (day == null) setDay(info.dayOf(c)); else location.hash = `c/${c.id}`; },
     onPickDay: k => setDay(k)
   });
@@ -566,21 +566,53 @@ async function attachMap(box, checkins, height, seed, daily = false) {
 }
 
 async function mapView(id) {
+  const scope = !id && getSetting('mapScope') === 'all' ? 'all' : 'pack';
+  const h = Math.max(320, Math.min(560, window.innerHeight - 330));
+  const scopeSeg = `<div class="seg scopeseg" role="group" aria-label="地圖範圍"><button data-sc="pack" class="${scope === 'pack' ? 'on' : ''}">這一包</button><button data-sc="all" class="${scope === 'all' ? 'on' : ''}">全部足跡</button></div>`;
+  const keyNote = getSetting('amapKey') ? '' : '<p class="muted sm" style="margin-top:10px">目前是插畫地圖；到「設定」填入高德金鑰後，會換成真實的城市地圖，也會顯示你現在的位置（藍點）。</p>';
+  const bindScope = () => view.querySelectorAll('[data-sc]').forEach(b => b.onclick = () => {
+    if (b.dataset.sc === scope && !id) return;
+    setSetting('mapScope', b.dataset.sc);
+    if (location.hash === '#map') rerender(); else location.hash = 'map';
+  });
+  // 地圖畫好之後，再放上「我在這裡」
+  const showMe = () => { const ctl = curMap; peekPosition().then(p => { if (ctl && curMap === ctl) ctl.setMe(p); }).catch(() => {}); };
+
+  if (scope === 'all') {
+    const ts = await store.listTrips();
+    let all = [];
+    for (const t of ts) all = all.concat(await store.listCheckins(t.id));
+    all.sort((p, q) => p.ts - q.ts);
+    const packs = ts.filter(t => !isDaily(t)).length, months = ts.filter(t => isDaily(t)).length;
+    view.innerHTML = `<div class="row between"><h1 class="h1">採蜜地圖</h1><span class="muted sm">${all.length} 個地點</span></div>
+      ${scopeSeg}
+      <div class="mapbar">${styleSeg()}</div>
+      <div id="mapbox"></div>
+      <p class="muted sm" style="margin:10px 2px 0">所有旅行和日常的打卡都在這裡${all.length ? `：${packs} 趟旅行、${months} 個月的日常` : ''}。點一朵花，可以看那次打卡。</p>
+      ${mapLegend()}${keyNote}`;
+    bindScope();
+    curMap = await mountMap($('#mapbox'), all, { style: mapStyle(), height: h, seed: 'all-footprints', day: null, noPills: true, wantMe: true, onPick: c => { location.hash = `c/${c.id}`; } });
+    const ctl = curMap;
+    view.querySelectorAll('[data-style]').forEach(b => b.onclick = () => { setSetting('mapStyle', b.dataset.style); view.querySelectorAll('[data-style]').forEach(x => x.classList.toggle('on', x === b)); ctl.setStyle(b.dataset.style); });
+    showMe();
+    return;
+  }
+
   const t = id ? await store.getTrip(id) : await ensureActiveTrip();
   if (!t) { location.hash = 'map'; return; }
   const cs = await store.listCheckins(t.id);
-  const days = [...new Set(cs.map(c => dayKey(c.ts)))];
-  const h = Math.max(320, Math.min(560, window.innerHeight - 330));
   view.innerHTML = `<div class="row between"><h1 class="h1">採蜜地圖</h1><span class="muted sm">${cs.length} 個地點</span></div>
-    <button class="chip" id="tripchip" style="margin-top:8px">${icon('trip')}<span><b>${esc(t.name)}</b></span><em>換旅程</em></button>
+    ${scopeSeg}
+    <button class="chip" id="tripchip" style="margin-top:8px">${icon(isDaily(t) ? 'flower' : 'trip')}<span><b>${esc(t.name)}</b></span><em>換旅程</em></button>
     <div class="mapbar">${styleSeg()}<button class="btn main sm" id="conn">${icon('flower')}連起來</button></div>
     <div class="dayseg" id="daytabs"></div>
     <div id="mapbox"></div>
     <div class="daylist" id="daylist"></div>
-    ${mapLegend()}
-    <p class="muted sm" style="margin-top:10px">${getSetting('amapKey') ? '' : '目前是插畫地圖；到「設定」填入高德金鑰後，會換成真實的城市地圖。'}</p>`;
+    ${mapLegend()}${keyNote}`;
   $('#tripchip').onclick = () => { location.hash = 'trips'; };
-  await attachMap($('#mapbox'), cs, h, t.id, isDaily(t));
+  bindScope();
+  await attachMap($('#mapbox'), cs, h, t.id, isDaily(t), { wantMe: true });
+  showMe();
 }
 
 // ---------- 花園主題：選擇與自訂 ----------
