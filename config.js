@@ -13,7 +13,7 @@ export const CONFIG = {
   kidRecordSec: 10,      // 兒童錄音秒數
   adultRecordSec: 30,    // 大人錄音秒數
   // 高德地圖的底圖樣式：正常版、可愛版（可換成 amap://styles/graffiti 塗鴉風、fresh 草色青等）
-  // 台灣、港澳、國外用的免費開放地圖（OpenStreetMap＋CARTO 圖磚）；之後要換成 Google 地圖也從這裡改
+  // 台灣、港澳、國外用的免費開放地圖（OpenStreetMap）；之後要換成 Google 地圖也從這裡改
   osm: {
     js: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
     css: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
@@ -24,8 +24,6 @@ export const CONFIG = {
       night: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
     },
     attribution: '© OpenStreetMap'
-  },
-    attribution: '© OpenStreetMap © CARTO'
   },
   mapStyles: { normal: 'amap://styles/normal', cute: 'amap://styles/macaron', night: 'amap://styles/darkblue' },
   kidGardenGoal: 5,      // 兒童花園：每幾個章算「開滿一片」
