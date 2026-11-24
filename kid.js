@@ -140,7 +140,7 @@ function micFlow(c) {
     const blob = await stopRec();
     mic.classList.remove('on');
     if (!blob) return;
-    await store.saveMedia({ id: uid(), checkinId: c.id, kind: 'audio', blob, by: 'kid', star: false, ts: Date.now(), size: blob.size });
+    await store.saveMedia({ id: uid(), checkinId: c.id, kind: 'audio', blob, by: 'kid', star: false, ts: Date.now(), size: blob.size, dur: Math.max(1, max - left) });
     mic.hidden = true;
     mt.textContent = '錄好了！你的聲音已經收進章本';
     const a = new Audio(URL.createObjectURL(blob));

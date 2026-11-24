@@ -59,3 +59,12 @@ export async function startRecorder() {
   rec.start();
   return { stop: () => { if (rec.state !== 'inactive') rec.stop(); return done; } };
 }
+
+// 取得圖片尺寸（判斷直拍或橫拍用）
+export async function blobDims(blob) {
+  if (!blob) return null;
+  try {
+    if (window.createImageBitmap) { const b = await createImageBitmap(blob); const d = { w: b.width, h: b.height }; b.close && b.close(); return d; }
+  } catch (e) {}
+  return new Promise(res => { const i = new Image(); i.onload = () => res({ w: i.naturalWidth, h: i.naturalHeight }); i.onerror = () => res(null); i.src = URL.createObjectURL(blob); });
+}

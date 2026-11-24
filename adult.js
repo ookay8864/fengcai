@@ -2,11 +2,11 @@
 import { CONFIG, getSetting, setSetting } from './config.js';
 import { store, ensureActiveTrip, getActiveId, setActiveId, askPersist, isKid, isAdult, findMergeTarget } from './store.js';
 import { getPosition, nearby, badgeOf, BADGES, shortType, isDemo, amapLink } from './geo.js';
-import { compressImage, videoThumb, startRecorder } from './media.js';
+import { compressImage, videoThumb, startRecorder, blobDims } from './media.js';
 import { mountMap, gardenSVG, dayInfo, defaultDay, markerSVG, whoText } from './map.js';
 import { allThemes, getTheme, themeIcon, itemIcon, ITEMS, GROUNDS, listCustom, saveCustom, deleteCustom } from './themes.js';
 import { collect, renderPostcard } from './postcard.js';
-import { makeVideo, estimate, canMakeVideo } from './video.js';
+import { makeVideo, estimate, canMakeVideo, selectVisuals, layoutItems, stopDuration, voiceLen, isLand, PER_STOP } from './video.js';
 import { TRACKS } from './music.js';
 import { $, esc, toast, confirmDlg, inputDlg, fmtTime, fmtDate, dayKey, uid, icon } from './ui.js';
 
@@ -181,11 +181,13 @@ async function addFiles(cid, fileList) {
       const isVideo = (f.type || '').startsWith('video') || /\.(mov|mp4|m4v)$/i.test(f.name || '');
       if (isVideo) {
         if (f.size > CONFIG.maxVideoMB * 1048576) { toast(`影片超過 ${CONFIG.maxVideoMB}MB，先略過，建議剪短一點再加`); continue; }
-        await store.saveMedia({ id: uid(), checkinId: cid, kind: 'video', blob: f, thumb: await videoThumb(f), star: false, ts: Date.now(), size: f.size });
+        const thumb = await videoThumb(f), d = await blobDims(thumb);
+        await store.saveMedia({ id: uid(), checkinId: cid, kind: 'video', blob: f, thumb, star: false, ts: Date.now(), size: f.size, w: d?.w, h: d?.h });
       } else {
         const blob = await compressImage(f, CONFIG.photoMax, 0.85);
         const thumb = await compressImage(f, 400, 0.7);
-        await store.saveMedia({ id: uid(), checkinId: cid, kind: 'photo', blob, thumb, star: false, ts: Date.now(), size: blob.size });
+        const d = await blobDims(blob);
+        await store.saveMedia({ id: uid(), checkinId: cid, kind: 'photo', blob, thumb, star: false, ts: Date.now(), size: blob.size, w: d?.w, h: d?.h });
       }
       ok++;
     } catch (e) { toast('有一個檔案無法加入：' + e.message); }
@@ -197,7 +199,7 @@ async function addFiles(cid, fileList) {
 function recordSheet(cid, max = CONFIG.adultRecordSec) {
   openSheet(`<h2 class="h2">錄一段聲音</h2><p class="muted">最長 ${max} 秒。可以錄孩子的心得，或現場的聲音。</p>
     <div class="center"><button class="mic" id="mic" aria-label="開始或停止錄音">${icon('mic', 'big')}</button><p id="rs" class="big-n">按一下開始</p></div><div id="rprev"></div>`);
-  let timer = null, left = max;
+  let timer = null, left = max, recDur = 0;
   const mic = $('#mic'), rs = $('#rs');
   mic.onclick = async () => {
     if (activeRec) { stop(); return; }
@@ -212,9 +214,10 @@ function recordSheet(cid, max = CONFIG.adultRecordSec) {
     if (!r) return;
     mic.classList.remove('on');
     const blob = await r.stop();
+    recDur = Math.max(1, max - left);
     rs.textContent = '錄好了，聽聽看';
     $('#rprev').innerHTML = `<audio controls src="${ou(blob)}" style="width:100%"></audio><div class="row"><button class="btn main" id="rsave">儲存</button><button class="btn" id="rredo">重錄</button></div>`;
-    $('#rsave').onclick = async () => { await store.saveMedia({ id: uid(), checkinId: cid, kind: 'audio', blob, by: 'adult', star: false, ts: Date.now(), size: blob.size }); toast('聲音已儲存'); closeSheet(); };
+    $('#rsave').onclick = async () => { await store.saveMedia({ id: uid(), checkinId: cid, kind: 'audio', blob, by: 'adult', star: false, ts: Date.now(), size: blob.size, dur: recDur }); toast('聲音已儲存'); closeSheet(); };
     $('#rredo').onclick = () => { $('#rprev').innerHTML = ''; rs.textContent = '按一下開始'; };
   }
 }
@@ -391,6 +394,11 @@ async function videoView(id) {
       <p class="muted sm" style="margin-top:6px">「輕快」「溫柔」是蜂采自己合成的原創音樂，分享到社群不會有版權問題。用自己的音樂時，請注意平台的版權規定。</p>
       <label class="switch"><span><b>放入錄音</b><br><span class="muted sm">每站播放孩子或大人的錄音，播放時音樂自動變小聲</span></span><input type="checkbox" id="vv" checked></label>
       <label class="switch"><span><b>放入影片片段</b><br><span class="muted sm">每段最多 ${CONFIG.video.clipSec} 秒</span></span><input type="checkbox" id="vc" checked></label>
+      <label class="switch"><span><b>製作時同步播放聲音</b><br><span class="muted sm">邊做邊聽音樂和錄音</span></span><input type="checkbox" id="vmon" checked></label>
+      <details class="vdet" id="vdet"><summary>${icon('gear')}調整短片內容<span class="muted sm">（不調整也可以直接製作）</span></summary>
+        <p class="muted sm">每站最多放 ${PER_STOP} 個，精選的優先。點照片可以加入或拿掉；照片下方左邊的按鈕可以換版型（拉遠、平移、照片卡）；「焦點」可以點選最想強調的位置。</p>
+        <div id="vlist"><p class="muted">載入中…</p></div>
+      </details>
       <div class="row"><button class="btn main" id="vgo">${icon('play')}開始製作</button><span class="muted sm" id="vest"></span></div>
     </div>
     <div id="vrun" hidden>
@@ -403,10 +411,79 @@ async function videoView(id) {
     <div id="vdone" hidden>
       <video id="vout" controls playsinline class="vout"></video>
       <p class="muted sm" id="vinfo"></p>
-      <div class="row"><button class="btn main" id="vsave">${icon('check')}儲存／分享影片</button><button class="btn" id="vagain">重新製作</button></div>
+      <div class="row"><button class="btn" id="vsound">${icon('play')}播放（開聲音）</button></div>
+      <div class="row"><button class="btn main" id="vsave">${icon('check')}儲存到相簿／分享</button><button class="btn" id="vagain">重新製作</button></div>
+      <p class="note sm">按「儲存到相簿」後，在跳出的選單裡選「<b>儲存影片</b>」，就會存進相簿。</p>
     </div>`;
-  const upd = async () => { const e = await estimate(data, opt); $('#vest').textContent = `大約 ${e.sec} 秒，${e.stops} 站`; };
+  const upd = async () => { const e = await estimate(data, opt); if ($('#vest')) $('#vest').textContent = `大約 ${e.sec} 秒，${e.stops} 站`; };
   upd();
+  // ---------- 短片內容（展開才載入） ----------
+  const LAYNAME = { pan: '平移', card: '照片卡', zoom: '拉遠' };
+  const ordered = [...data.cs].sort((a, b) => a.ts - b.ts);
+  const dinfo = dayInfo(data.cs);
+  const audioDur = blob => new Promise(res => { const a = new Audio(); a.preload = 'metadata'; a.onloadedmetadata = () => res(isFinite(a.duration) ? a.duration : null); a.onerror = () => res(null); setTimeout(() => res(null), 4000); a.src = URL.createObjectURL(blob); });
+  const renderVList = async () => {
+    let html = '';
+    for (const c of ordered) {
+      const ms = await store.listMedia(c.id);
+      const vis = ms.filter(m => m.kind !== 'audio');
+      const sel = selectVisuals(ms), selIds = new Set(sel.map(m => m.id));
+      const au = ms.filter(m => m.kind === 'audio').sort((a, b) => (a.by === 'kid' ? 0 : 1) - (b.by === 'kid' ? 0 : 1) || a.ts - b.ts)[0];
+      if (au && !au.dur) { const d = await audioDur(au.blob); if (d) { au.dur = d; await store.saveMedia(au); } }
+      const items = layoutItems(c, sel, opt);
+      const d = stopDuration(items, au && opt.voices && c.vVoice !== false ? voiceLen(c, au) : 0);
+      const landAuto = sel.filter(m => m.kind === 'photo' && isLand(m) && (!m.layout || m.layout === 'auto')).length;
+      html += `<div class="vstop"><div class="vhead">${mkIcon(c, 30)}<div><b>${esc(c.placeName.replace(/（模擬）/g, ''))}</b><span>${dinfo.days.length > 1 ? `第 ${dinfo.dayOf(c) + 1} 天 · ` : ''}第 ${dinfo.num(c)} 站${c.lat == null ? ' · 沒有定位' : ''}${d ? ` · 約 ${Math.round(d)} 秒` : ''}</span></div>${vis.some(m => m.vid != null) ? `<button class="linkbtn" data-reset="${c.id}">恢復自動</button>` : ''}</div>`;
+      html += vis.length ? `<div class="vthumbs">${vis.map(m => {
+        const on = selIds.has(m.id), lay = m.layout || 'auto', useClip = m.kind === 'video' && opt.clips;
+        return `<div class="vt${on ? ' on' : ''}"><button class="vt-img" data-sel="${m.id}" data-c="${c.id}" aria-pressed="${on}" aria-label="${on ? '從短片拿掉' : '放進短片'}">${m.thumb ? `<img src="${ou(m.thumb)}" alt="">` : `<span class="vph">${icon('play')}</span>`}<span class="vt-chk">${icon('check')}</span>${m.star ? `<span class="vt-star">${icon('star')}</span>` : ''}${m.kind === 'video' ? `<span class="vbadge">${icon('play')}</span>` : ''}${m.focus ? `<i class="focus-dot" style="left:${(m.focus.x * 100).toFixed(1)}%;top:${(m.focus.y * 100).toFixed(1)}%"></i>` : ''}</button>
+          <div class="vt-tools">${useClip ? '<span class="muted sm">影片</span>' : `<button data-lay="${m.id}" class="${lay === 'auto' ? '' : 'set'}">${LAYNAME[lay === 'auto' ? (isLand(m) ? 'pan' : 'zoom') : lay]}</button>`}<button data-foc="${m.id}">焦點</button></div></div>`;
+      }).join('')}</div>` : '<p class="muted sm" style="margin:4px 0">這一站沒有照片或影片。</p>';
+      if (au) {
+        html += `<label class="vopt"><input type="checkbox" data-voice="${c.id}" ${c.vVoice !== false ? 'checked' : ''}>放入錄音（${au.by === 'kid' ? '孩子' : '大人'}${au.dur ? `，${Math.round(au.dur)} 秒` : ''}）</label>`;
+        if (!au.dur || au.dur > 10) html += `<label class="vopt"><input type="checkbox" data-trim="${c.id}" ${c.vTrim ? 'checked' : ''}>只播前 10 秒（結尾淡出）</label>`;
+      }
+      if (landAuto >= 2) html += `<label class="vopt"><input type="checkbox" data-stack="${c.id}" ${c.vStack !== false ? 'checked' : ''}>兩張橫拍上下拼貼</label>`;
+      html += '</div>';
+    }
+    freeVlistUrls();
+    $('#vlist').innerHTML = html || '<p class="muted">這趟旅程還沒有打卡。</p>';
+    bindVList();
+    upd();
+  };
+  let vUrls = [];
+  const freeVlistUrls = () => { vUrls.forEach(u => URL.revokeObjectURL(u)); vUrls = urls.splice(0); };
+  const getC = id => data.cs.find(c => c.id === id);
+  const bindVList = () => {
+    const L = $('#vlist');
+    L.querySelectorAll('[data-sel]').forEach(b => b.onclick = async () => {
+      const c = getC(b.dataset.c), ms = await store.listMedia(c.id);
+      const vis = ms.filter(m => m.kind !== 'audio'), selIds = new Set(selectVisuals(ms).map(m => m.id));
+      const m = vis.find(x => x.id === b.dataset.sel);
+      // 第一次手動調整：把這站目前的選擇固定下來，避免自動補上別張
+      for (const x of vis) { const want = selIds.has(x.id); if (x.vid !== want) { x.vid = want; await store.saveMedia(x); } }
+      if (selIds.has(m.id)) m.vid = false;
+      else if (selIds.size >= PER_STOP) { toast(`每站最多 ${PER_STOP} 個，請先拿掉一個`); return; }
+      else m.vid = true;
+      await store.saveMedia(m);
+      renderVList();
+    });
+    L.querySelectorAll('[data-lay]').forEach(b => b.onclick = async () => {
+      const fresh = await store.getMedia(b.dataset.lay);
+      const order = isLand(fresh) ? ['auto', 'pan', 'card', 'zoom'] : ['auto', 'card', 'zoom'];
+      fresh.layout = order[(order.indexOf(fresh.layout || 'auto') + 1) % order.length];
+      await store.saveMedia(fresh);
+      renderVList();
+    });
+    L.querySelectorAll('[data-foc]').forEach(b => b.onclick = async () => { const m = await store.getMedia(b.dataset.foc); if (await focusEditor(m)) renderVList(); });
+    L.querySelectorAll('[data-reset]').forEach(b => b.onclick = async () => { for (const m of await store.listMedia(b.dataset.reset)) if (m.vid != null) { delete m.vid; await store.saveMedia(m); } renderVList(); });
+    const setFlag = async (id, fn) => { const c = await store.getCheckin(id); fn(c); await store.saveCheckin(c); const local = getC(id); for (const k of ['vVoice', 'vStack', 'vTrim']) { if (k in c) local[k] = c[k]; else delete local[k]; } renderVList(); };
+    L.querySelectorAll('[data-voice]').forEach(i => i.onchange = () => setFlag(i.dataset.voice, c => { if (i.checked) delete c.vVoice; else c.vVoice = false; }));
+    L.querySelectorAll('[data-stack]').forEach(i => i.onchange = () => setFlag(i.dataset.stack, c => { if (i.checked) delete c.vStack; else c.vStack = false; }));
+    L.querySelectorAll('[data-trim]').forEach(i => i.onchange = () => setFlag(i.dataset.trim, c => { c.vTrim = i.checked; }));
+  };
+  let vLoaded = false;
+  $('#vdet').addEventListener('toggle', () => { if ($('#vdet').open && !vLoaded) { vLoaded = true; renderVList(); } });
   view.querySelectorAll('[data-style]').forEach(b => b.onclick = () => { opt.style = b.dataset.style; setSetting('mapStyle', opt.style); view.querySelectorAll('[data-style]').forEach(x => x.classList.toggle('on', x === b)); });
   view.querySelectorAll('[data-mu]').forEach(b => b.onclick = () => {
     opt.music = b.dataset.mu; if (opt.music !== 'file') setSetting('videoMusic', opt.music);
@@ -415,7 +492,9 @@ async function videoView(id) {
   });
   $('#mf').onchange = e => { opt.musicFile = e.target.files[0] || null; $('#mname').textContent = opt.musicFile ? opt.musicFile.name : '從手機選一首音樂'; };
   $('#vv').onchange = e => { opt.voices = e.target.checked; upd(); };
-  $('#vc').onchange = e => { opt.clips = e.target.checked; };
+  $('#vc').onchange = e => { opt.clips = e.target.checked; upd(); if (vLoaded) renderVList(); };
+  opt.monitor = true;
+  $('#vmon').onchange = e => { opt.monitor = e.target.checked; };
   $('#vgo').onclick = async () => {
     if (opt.music === 'file' && !opt.musicFile) { toast('請先選一首音樂，或改用「輕快」「溫柔」'); return; }
     opt.title = $('#vt').value;
@@ -443,15 +522,17 @@ async function videoView(id) {
     if (!result) { $('#vform').hidden = false; return; }
     if (resultUrl) URL.revokeObjectURL(resultUrl);
     resultUrl = URL.createObjectURL(result.blob);
+    $('#vout').muted = false;
     $('#vout').src = resultUrl;
     $('#vinfo').textContent = `${Math.round(result.total)} 秒 · ${(result.blob.size / 1048576).toFixed(1)} MB · ${result.type.includes('mp4') ? 'MP4' : 'WebM'}`;
     $('#vdone').hidden = false;
   };
   $('#vagain').onclick = () => { $('#vdone').hidden = true; $('#vform').hidden = false; };
+  $('#vsound').onclick = () => { const v = $('#vout'); v.muted = false; v.volume = 1; try { v.currentTime = 0; } catch (e) {} v.play().catch(() => toast('請再按一次播放')); };
   $('#vsave').onclick = async () => {
     if (!result) return;
     const ext = result.type.includes('mp4') ? 'mp4' : 'webm';
-    const file = new File([result.blob], `蜂采-${data.trip.name}.${ext}`, { type: result.type });
+    const file = new File([result.blob], `fengcai-${new Date().toISOString().slice(0, 10)}.${ext}`, { type: ext === 'mp4' ? 'video/mp4' : 'video/webm' });
     try {
       if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file] });
       else { const a = document.createElement('a'); a.href = resultUrl; a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); }
@@ -555,7 +636,7 @@ async function checkin(id) {
     <div class="row">${pending ? '' : '<button class="btn sm" id="ren">改地點名稱</button>'}${c.lat != null ? `<a class="btn sm" href="${amapLink(c.lat, c.lng, c.placeName)}" target="_blank" rel="noopener">${icon('map')}在高德地圖開啟</a>` : ''}</div>
     <h2 class="h2">照片與影片 <small>${vis.length}/${MAX}</small></h2>
     <div class="grid">
-      ${vis.map(x => `<div class="tile${x.star ? ' star' : ''}"><button class="tile-v" data-v="${x.id}" aria-label="查看">${x.thumb ? `<img src="${ou(x.thumb)}" alt="">` : `<span class="vph">${icon('play')}</span>`}${x.kind === 'video' ? `<span class="vbadge">${icon('play')}</span>` : ''}</button><button class="tile-s" data-s="${x.id}" aria-label="${x.star ? '取消精選' : '設為精選'}">${icon('star')}</button></div>`).join('')}
+      ${vis.map(x => `<div class="tile${x.star ? ' star' : ''}"><button class="tile-v" data-v="${x.id}" aria-label="查看">${x.thumb ? `<img src="${ou(x.thumb)}" alt="">` : `<span class="vph">${icon('play')}</span>`}${x.kind === 'video' ? `<span class="vbadge">${icon('play')}</span>` : ''}</button><button class="tile-s" data-s="${x.id}" aria-pressed="${x.star ? 'true' : 'false'}" aria-label="精選"><span class="star-badge">${icon('star')}</span></button>${x.focus ? `<i class="focus-dot" style="left:${(x.focus.x * 100).toFixed(1)}%;top:${(x.focus.y * 100).toFixed(1)}%"></i>` : ''}</div>`).join('')}
       ${vis.length < MAX ? `<label class="tile add">${icon('plus')}<span>加照片<br>或影片</span><input type="file" accept="image/*,video/*" multiple id="f"></label>` : ''}
     </div>
     <p class="muted sm">點右上角星星設為「精選」，之後生成短片會優先使用。</p>
@@ -572,7 +653,15 @@ async function checkin(id) {
   $('#rec').onclick = () => recordSheet(id);
   let nt = null;
   $('#note').oninput = e => { clearTimeout(nt); nt = setTimeout(async () => { c.note = e.target.value; await store.saveCheckin(c); }, 500); };
-  view.querySelectorAll('[data-s]').forEach(btn => btn.onclick = async () => { const x = vis.find(v => v.id === btn.dataset.s); x.star = !x.star; await store.saveMedia(x); rerender(); });
+  view.querySelectorAll('[data-s]').forEach(btn => btn.onclick = async e => {
+    e.preventDefault(); e.stopPropagation();
+    const x = vis.find(v => v.id === btn.dataset.s);
+    x.star = !x.star;
+    btn.setAttribute('aria-pressed', x.star ? 'true' : 'false');
+    btn.closest('.tile').classList.toggle('star', x.star);
+    toast(x.star ? '已設為精選' : '已取消精選');
+    await store.saveMedia(x);
+  });
   view.querySelectorAll('[data-v]').forEach(btn => btn.onclick = () => viewer(vis.find(v => v.id === btn.dataset.v)));
   view.querySelectorAll('[data-d]').forEach(btn => btn.onclick = async () => { if (await confirmDlg('刪除這段聲音？', '刪除')) { await store.deleteMedia(btn.dataset.d); rerender(); } });
   $('#del').onclick = async () => {
@@ -581,17 +670,50 @@ async function checkin(id) {
   };
 }
 
+// ---------- 照片焦點：點一下要強調的位置 ----------
+function focusEditor(m) {
+  return new Promise(res => {
+    const src = m.kind === 'photo' ? m.blob : m.thumb;
+    if (!src) { toast('這個檔案沒有可以設定焦點的畫面'); res(false); return; }
+    const u = URL.createObjectURL(src);
+    let f = m.focus ? { ...m.focus } : null;
+    const ov = document.createElement('div');
+    ov.className = 'viewer';
+    ov.innerHTML = `<p class="fe-tip">點一下照片上最想強調的地方（例如人），短片會從那裡開始，再慢慢拉遠</p>
+      <div class="fe-wrap"><div class="fe-box"><img src="${u}" alt=""><i class="fe-dot" hidden></i></div></div>
+      <div class="viewer-bar"><button class="btn" data-a="clear">清除焦點</button><button class="btn main" data-a="ok">${icon('check')}完成</button></div>`;
+    document.body.appendChild(ov);
+    const box = ov.querySelector('.fe-box'), dot = ov.querySelector('.fe-dot');
+    const show = () => { dot.hidden = !f; if (f) { dot.style.left = (f.x * 100) + '%'; dot.style.top = (f.y * 100) + '%'; } };
+    show();
+    box.querySelector('img').onclick = e => {
+      const b = e.currentTarget.getBoundingClientRect();
+      f = { x: Math.min(1, Math.max(0, (e.clientX - b.left) / b.width)), y: Math.min(1, Math.max(0, (e.clientY - b.top) / b.height)) };
+      show();
+    };
+    ov.querySelector('[data-a="clear"]').onclick = () => { f = null; show(); };
+    ov.querySelector('[data-a="ok"]').onclick = async () => {
+      if (f) m.focus = f; else delete m.focus;
+      await store.saveMedia(m);
+      ov.remove(); URL.revokeObjectURL(u);
+      toast(f ? '已設定焦點' : '已清除焦點');
+      res(true);
+    };
+  });
+}
+
 function viewer(x) {
   const u = URL.createObjectURL(x.blob);
   const ov = document.createElement('div');
   ov.className = 'viewer';
   ov.innerHTML = `${x.kind === 'video' ? `<video src="${u}" controls playsinline autoplay></video>` : `<img src="${u}" alt="">`}
-    <div class="viewer-bar"><button class="btn" data-a="close">關閉</button><button class="btn danger" data-a="del">${icon('trash')}刪除</button></div>`;
+    <div class="viewer-bar"><button class="btn" data-a="close">關閉</button><button class="btn" data-a="focus">設定焦點</button><button class="btn danger" data-a="del">${icon('trash')}刪除</button></div>`;
   document.body.appendChild(ov);
   const close = () => { ov.remove(); URL.revokeObjectURL(u); };
   ov.onclick = async e => {
     const a = e.target.closest('[data-a]')?.dataset.a;
     if (a === 'close') close();
+    if (a === 'focus') { close(); if (await focusEditor(x)) rerender(); }
     if (a === 'del' && (await confirmDlg('刪除這個檔案？', '刪除'))) { await store.deleteMedia(x.id); close(); rerender(); }
   };
 }

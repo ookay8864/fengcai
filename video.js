@@ -10,6 +10,7 @@ import { adultMapSVG, adultLayout, svgToImage, markerOnlySVG } from './map.js';
 import { renderPostcard, dateRange, statsLine, palette, rr, wrap, FONT } from './postcard.js';
 import { renderMusic } from './music.js';
 import { fmtDate, dayKey } from './ui.js';
+import { blobDims } from './media.js';
 
 const V = CONFIG.video;
 const CW = V.width, CH = V.height, MW = 360, MH = Math.round(360 * CH / CW), K = CW / MW;
@@ -111,6 +112,47 @@ function pill(ctx, text, x, y, font, bg, fg, padX = 26, h = 70, align = 'left') 
   return w;
 }
 
+// ---------- 每一站放什麼（短片內容頁和製作共用） ----------
+export const PER_STOP = 3;
+export const isLand = m => !!(m && m.w && m.h && m.w > m.h * 1.15);
+// 精選優先，每站最多 3 個；m.vid === true 一定放、=== false 不放
+export function selectVisuals(ms) {
+  const vis = ms.filter(m => m.kind !== 'audio');
+  const sel = vis.filter(m => m.vid === true);
+  const auto = vis.filter(m => m.vid == null).sort((a, b) => (b.star ? 1 : 0) - (a.star ? 1 : 0) || a.ts - b.ts);
+  for (const m of auto) { if (sel.length >= PER_STOP) break; sel.push(m); }
+  return sel.slice(0, PER_STOP).sort((a, b) => a.ts - b.ts);
+}
+// 錄音：孩子的優先；c.vVoice === false 不放
+export function pickVoice(c, ms) {
+  if (c.vVoice === false) return null;
+  return ms.filter(m => m.kind === 'audio').sort((a, b) => (a.by === 'kid' ? 0 : 1) - (b.by === 'kid' ? 0 : 1) || a.ts - b.ts)[0] || null;
+}
+// 錄音一律完整播完（最多 30 秒）；選了「只播前 10 秒」才截短
+export const voiceLen = (c, au, real) => Math.min(real != null ? real : (au.dur || 5), c.vTrim ? 10 : 30);
+// 版型：直拍＝焦點拉遠、橫拍＝平移掃過、card＝完整照片卡、兩張自動橫拍＝上下拼貼
+export function layoutItems(c, sel, opt = {}) {
+  const out = [], autoLand = [];
+  for (const m of sel) {
+    if (m.kind === 'video' && opt.clips !== false) { out.push({ m, layout: 'video', dur: Math.min(m.dur || V.clipSec, V.clipSec) }); continue; }
+    const auto = !m.layout || m.layout === 'auto';
+    const lay = auto ? (isLand(m) ? 'pan' : 'zoom') : m.layout;
+    const it = { m, layout: lay, dur: lay === 'pan' ? V.panSec : lay === 'card' ? V.cardSec : V.photoSec };
+    if (auto && lay === 'pan') autoLand.push(it);
+    out.push(it);
+  }
+  if (autoLand.length >= 2 && c.vStack !== false) {
+    const [a, b] = autoLand;
+    a.layout = 'stack'; a.m2 = b.m; a.dur = V.stackSec;
+    out.splice(out.indexOf(b), 1);
+  }
+  return out;
+}
+export function stopDuration(items, vd) {
+  const sum = items.reduce((a, b) => a + b.dur, 0);
+  return items.length || vd ? Math.max(sum, vd ? vd + 0.7 : 0, 2.2) : 0;
+}
+
 // ---------- 主程式 ----------
 // opt: { style, title, music:'bright'|'gentle'|'file'|'none', musicFile, voices, clips, ac }
 // ui:  { canvas, onStatus(text), onProgress(ratio, sec, total), isCancelled() }
@@ -131,55 +173,57 @@ export async function makeVideo(data, opt, ui) {
   const days = [...new Set(data.cs.map(c => dayKey(c.ts)))];
   const logo = await loadImg('./logo.svg').catch(() => null);
 
-  // 每一站的素材
+  // 每一站的素材（沒有定位的站也放，只是蜜蜂不會飛過去）
   ui.onStatus('整理照片和錄音…');
   const stops = [];
-  for (const c of L.pts) {
+  const all = [...data.cs].sort((a, b) => a.ts - b.ts);
+  for (const c of all) {
     const ms = await store.listMedia(c.id);
-    const vis = ms.filter(m => m.kind !== 'audio').sort((a, b) => (b.star ? 1 : 0) - (a.star ? 1 : 0) || a.ts - b.ts).slice(0, 3);
-    const items = [];
-    for (const m of vis) {
-      if (m.kind === 'video' && opt.clips) {
-        const v = await loadVideo(m.blob);
-        if (v) { items.push({ kind: 'video', el: v, dur: Math.min(V.clipSec, v.duration || V.clipSec) }); continue; }
+    const sel = selectVisuals(ms);
+    for (const m of sel) {
+      if (!m.w && (m.kind === 'photo' || m.thumb)) { const d = await blobDims(m.kind === 'photo' ? m.blob : m.thumb); if (d) { m.w = d.w; m.h = d.h; store.saveMedia(m); } }
+    }
+    const items = layoutItems(c, sel, opt);
+    for (const it of items) {
+      if (it.layout === 'video') {
+        const v = await loadVideo(it.m.blob);
+        if (v) { it.el = v; it.dur = Math.min(V.clipSec, v.duration || V.clipSec); continue; }
+        it.layout = isLand(it.m) ? 'pan' : 'zoom'; it.dur = it.layout === 'pan' ? V.panSec : V.photoSec;
       }
-      const img = await blobImg(m.kind === 'photo' ? m.blob : m.thumb);
-      if (img) items.push({ kind: 'photo', el: img, dur: V.photoSec });
+      it.el = await blobImg(it.m.kind === 'photo' ? it.m.blob : it.m.thumb);
+      if (it.m2) { it.el2 = await blobImg(it.m2.blob); if (!it.el2) { it.layout = 'pan'; it.dur = V.panSec; } }
     }
     let voice = null;
     if (opt.voices) {
-      const au = ms.filter(m => m.kind === 'audio').sort((a, b) => (a.by === 'kid' ? -1 : 0) - (b.by === 'kid' ? -1 : 0))[0];
-      if (au) { try { const buf = await ac.decodeAudioData(await au.blob.arrayBuffer()); voice = { buf, by: au.by }; } catch (e) { console.warn('錄音解碼失敗', e); } }
+      const au = pickVoice(c, ms);
+      if (au) {
+        try { const buf = await ac.decodeAudioData(await au.blob.arrayBuffer()); voice = { buf, by: au.by, len: voiceLen(c, au, buf.duration), trim: !!c.vTrim && buf.duration > 10 }; }
+        catch (e) { console.warn('錄音解碼失敗', e); }
+      }
     }
-    stops.push({ c, all: items, voice });
+    stops.push({ c, li: L.pts.indexOf(c), items: items.filter(it => it.el), voice });
   }
 
-  // 排時間軸（太長就自動精簡）
-  const build = (perStop, voiceMax, clipMax) => {
-    const scenes = []; let t = 0;
-    const push = s => { s.start = t; t += s.d; scenes.push(s); };
-    push({ type: 'intro', d: V.introSec });
-    push({ type: 'overview', d: V.overviewSec });
-    stops.forEach((st, i) => {
-      const dk = L.dayOf(st.c);
-      if (L.days.length > 1 && (i === 0 || L.dayOf(stops[i - 1].c) !== dk)) push({ type: 'day', k: dk, c: st.c, d: V.daySec || 1.6 });
-      push({ type: 'fly', i, d: i === 0 ? 1.1 : V.flySec });
-      const items = st.all.slice(0, perStop).map(it => ({ ...it, dur: it.kind === 'video' ? Math.min(it.dur, clipMax) : it.dur }));
-      const vd = st.voice ? Math.min(st.voice.buf.duration, voiceMax) : 0;
-      if (items.length || vd) {
-        const sum = items.reduce((a, b) => a + b.dur, 0);
-        const d = Math.max(sum, vd ? vd + 0.7 : 0, 2.2);
-        if (items.length) { const k = d / sum; let s0 = 0; items.forEach(it => { it.d = it.dur * k; it.s = s0; s0 += it.d; }); }
-        push({ type: 'card', i, d, items, vd });
-      } else push({ type: 'pass', i, d: V.passSec });
-    });
-    push({ type: 'outro', d: V.outroSec });
-    return { scenes, total: t };
-  };
-  let plan = build(3, V.voiceMaxSec, V.clipSec);
-  if (plan.total > V.maxSec) plan = build(2, V.voiceMaxSec, 3);
-  if (plan.total > V.maxSec) plan = build(1, 4, 2.5);
-  const { scenes, total } = plan;
+  // 排時間軸：照片停留時間固定，不自動縮短
+  const scenes = []; let total = 0;
+  const push = sc => { sc.start = total; total += sc.d; scenes.push(sc); };
+  push({ type: 'intro', d: V.introSec });
+  push({ type: 'overview', d: V.overviewSec });
+  let prevLoc = -1;
+  stops.forEach((st, i) => {
+    const dk = L.dayOf(st.c);
+    if (L.days.length > 1 && (i === 0 || L.dayOf(stops[i - 1].c) !== dk)) push({ type: 'day', k: dk, c: st.c, d: V.daySec || 1.6 });
+    if (st.li >= 0) { push({ type: 'fly', li: st.li, from: prevLoc, d: prevLoc < 0 ? 1.1 : V.flySec }); prevLoc = st.li; }
+    const vd = st.voice ? st.voice.len : 0;
+    const items = st.items.map(it => ({ ...it }));
+    const d = stopDuration(items, vd);
+    if (d) {
+      const sum = items.reduce((a, b) => a + b.dur, 0);
+      if (items.length) { const k = d / sum; let s0 = 0; items.forEach(it => { it.d = it.dur * k; it.s = s0; s0 += it.d; }); }
+      push({ type: 'card', i, li: st.li, prog: prevLoc, d, items, vd });
+    } else if (st.li >= 0) push({ type: 'pass', i, li: st.li, d: V.passSec });
+  });
+  push({ type: 'outro', d: V.outroSec });
 
   // 片尾明信片
   ui.onStatus('準備片尾…');
@@ -254,24 +298,65 @@ export async function makeVideo(data, opt, ui) {
     ctx.save(); ctx.setLineDash([4, 26]); ctx.lineCap = 'round'; ctx.lineWidth = 8; ctx.strokeStyle = P.deep; ctx.globalAlpha = .5;
     ctx.beginPath(); for (let x = -120; x < bx - 60; x += 20) ctx.lineTo(x, 1560 + Math.sin((x + 120) / (CW + 240) * V.introSec * 4) * 60); ctx.stroke(); ctx.restore();
   }
+  // 照片畫法：focus 是使用者點的焦點（0–1），焦點一定留在畫面裡
+  function drawCover(img, x, y, w, h, z, f) {
+    const iw = img.videoWidth || img.width, ih = img.videoHeight || img.height;
+    if (!iw || !ih) return;
+    const sc = Math.max(w / iw, h / ih) * z, dw = iw * sc, dh = ih * sc;
+    const fx = f ? f.x : .5, fy = f ? f.y : .5;
+    const ox = clamp(x + w / 2 - fx * dw, x + w - dw, x), oy = clamp(y + h / 2 - fy * dh, y + h - dh, y);
+    ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+    ctx.drawImage(img, ox, oy, dw, dh);
+    ctx.restore();
+  }
+  function drawPan(img, e, f) {
+    const iw = img.width, ih = img.height, sc = CH / ih, dw = iw * sc;
+    if (dw <= CW + 4) { drawCover(img, 0, 0, CW, CH, lerp(1.03, 1.1, e), f); return; }
+    const minX = CW - dw;
+    const end = f ? clamp(CW / 2 - f.x * dw, minX, 0) : minX;
+    let start = f ? (f.x > .5 ? 0 : minX) : 0;
+    if (Math.abs(start - end) < 60) start = Math.abs(end) < Math.abs(end - minX) ? minX : 0;
+    ctx.drawImage(img, lerp(start, end, e), 0, dw, CH);
+  }
+  function drawPhotoCard(img, e) {
+    const g = ctx.createLinearGradient(0, 0, 0, CH); g.addColorStop(0, P.soft2 || '#FFE9A8'); g.addColorStop(1, P.honey);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, CW, CH); hexBg(ctx, P, .12);
+    const iw = img.width, ih = img.height, sc = Math.min((CW - 160) / iw, (CH * .55) / ih), w = iw * sc, h = ih * sc;
+    ctx.save(); ctx.translate(CW / 2, CH * .4); ctx.rotate(-.025); const z = .94 + .06 * e; ctx.scale(z, z);
+    ctx.shadowColor = 'rgba(60,30,0,.3)'; ctx.shadowBlur = 40; ctx.shadowOffsetY = 14;
+    ctx.fillStyle = '#fff'; rr(ctx, -w / 2 - 22, -h / 2 - 22, w + 44, h + 44, 12); ctx.fill();
+    ctx.shadowColor = 'transparent'; ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.restore();
+  }
+  function drawItem(it, il, alpha) {
+    const p = clamp(il / (it.d || it.dur), 0, 1), e = ease(p), f = it.m.focus;
+    ctx.save(); ctx.globalAlpha = alpha;
+    if (it.layout === 'video') {
+      if (!playing.has(it.el)) { playing.add(it.el); try { it.el.currentTime = 0; it.el.play().catch(() => {}); } catch (er) {} }
+      drawCover(it.el, 0, 0, CW, CH, 1, f);
+    } else if (it.layout === 'zoom') {
+      if (f) drawCover(it.el, 0, 0, CW, CH, lerp(1.5, 1.0, e), f);
+      else drawCover(it.el, 0, 0, CW, CH, lerp(1.03, 1.12, p), null);
+    } else if (it.layout === 'pan') drawPan(it.el, e, f);
+    else if (it.layout === 'card') drawPhotoCard(it.el, e);
+    else if (it.layout === 'stack') {
+      const h = CH / 2 - 8;
+      drawCover(it.el, 0, 0, CW, h, f ? lerp(1.25, 1.0, e) : lerp(1.02, 1.08, p), f);
+      drawCover(it.el2, 0, CH / 2 + 8, CW, h, it.m2.focus ? lerp(1.25, 1.0, e) : lerp(1.08, 1.02, p), it.m2.focus);
+      ctx.fillStyle = P.honey; ctx.fillRect(0, CH / 2 - 8, CW, 16);
+    }
+    ctx.restore();
+  }
   function drawCard(s, lt) {
     const st = stops[s.i], c = st.c;
     ctx.fillStyle = '#1b1208'; ctx.fillRect(0, 0, CW, CH);
     if (s.items.length) {
-      const idx = Math.max(0, s.items.findIndex(it => lt >= it.s && lt < it.s + it.d)) || 0;
+      const idx = Math.max(0, s.items.findIndex(it => lt >= it.s && lt < it.s + it.d));
       const cur = s.items[lt >= s.d ? s.items.length - 1 : idx];
-      const drawItem = (it, il, alpha) => {
-        ctx.save(); ctx.globalAlpha = alpha;
-        if (it.kind === 'video') {
-          if (!playing.has(it.el)) { playing.add(it.el); try { it.el.currentTime = 0; it.el.play().catch(() => {}); } catch (e) {} }
-          coverZoom(ctx, it.el, 1);
-        } else coverZoom(ctx, it.el, 1.03 + 0.09 * clamp(il / it.d, 0, 1), 0, -20 * il);
-        ctx.restore();
-      };
       drawItem(cur, lt - cur.s, 1);
       const ni = s.items.indexOf(cur) + 1;
       if (ni < s.items.length && lt > cur.s + cur.d - .35) drawItem(s.items[ni], 0, clamp((lt - (cur.s + cur.d - .35)) / .35, 0, 1));
-      s.items.forEach(it => { if (it.kind === 'video' && it !== cur && playing.has(it.el) && lt > it.s + it.d) { it.el.pause(); } });
+      s.items.forEach(it => { if (it.layout === 'video' && it !== cur && playing.has(it.el) && lt > it.s + it.d) it.el.pause(); });
     } else {
       const g = ctx.createLinearGradient(0, 0, 0, CH); g.addColorStop(0, P.soft2 || '#FFE9A8'); g.addColorStop(1, P.honey);
       ctx.fillStyle = g; ctx.fillRect(0, 0, CW, CH); hexBg(ctx, P, .12);
@@ -351,21 +436,23 @@ export async function makeVideo(data, opt, ui) {
       ctx.restore();
     } else if (s.type === 'fly') {
       const k = ease(p);
-      if (s.i === 0) {
-        const to = stopXY(0), from = [to[0], MH + 40];
+      if (s.from < 0) {
+        const to = stopXY(s.li), from = [to[0], MH + 40];
         const b = [lerp(from[0], to[0], k), lerp(from[1], to[1], k)];
-        drawMap({ x: lerp(MW / 2, to[0], k), y: lerp(MH / 2, to[1], k), z: lerp(1, ZOOM, k) }, 0, b, e);
+        drawMap({ x: lerp(MW / 2, to[0], k), y: lerp(MH / 2, to[1], k), z: lerp(1, ZOOM, k) }, Math.max(0, s.li), b, e);
       } else {
-        const seg = L.segs[s.i - 1], b = along(seg, k), b2 = along(seg, Math.min(1, k + .02));
-        drawMap({ x: b[0], y: b[1], z: ZOOM }, s.i - 1 + k, b, e, b2[0] < b[0] ? -1 : 1);
+        const seg = L.segs[s.li - 1], b = along(seg, k), b2 = along(seg, Math.min(1, k + .02));
+        drawMap({ x: b[0], y: b[1], z: ZOOM }, s.li - 1 + k, b, e, b2[0] < b[0] ? -1 : 1);
       }
     } else if (s.type === 'pass') {
-      const q = stopXY(s.i);
-      drawMap({ x: q[0], y: q[1], z: ZOOM }, s.i, [q[0], q[1] - 8 + Math.sin(e * 5) * 3], e);
+      const q = stopXY(s.li);
+      drawMap({ x: q[0], y: q[1], z: ZOOM }, s.li, [q[0], q[1] - 8 + Math.sin(e * 5) * 3], e);
       nameBanner(stops[s.i].c, s.i, clamp(lt / .3, 0, 1));
     } else if (s.type === 'card') {
-      const q = stopXY(s.i);
-      if (lt < .4) drawMap({ x: q[0], y: q[1], z: ZOOM }, s.i, q, e);
+      if (lt < .4) {
+        if (s.li >= 0) { const q = stopXY(s.li); drawMap({ x: q[0], y: q[1], z: ZOOM }, s.li, q, e); }
+        else { const g = ctx.createLinearGradient(0, 0, 0, CH); g.addColorStop(0, P.soft2 || '#FFE9A8'); g.addColorStop(1, P.honey); ctx.fillStyle = g; ctx.fillRect(0, 0, CW, CH); }
+      }
       ctx.save(); ctx.globalAlpha = clamp(lt / .4, 0, 1); drawCard(s, lt); ctx.restore();
     } else if (s.type === 'day') drawDay(s, lt);
     else if (s.type === 'outro') drawOutro(lt);
@@ -377,6 +464,7 @@ export async function makeVideo(data, opt, ui) {
   const dest = ac.createMediaStreamDestination();
   const mg = ac.createGain(); mg.connect(dest);
   const vg = ac.createGain(); vg.gain.value = 1; vg.connect(dest);
+  if (opt.monitor) { mg.connect(ac.destination); vg.connect(ac.destination); }
   const vstream = cv.captureStream(V.fps);
   const tracks = [...vstream.getVideoTracks(), ...dest.stream.getAudioTracks()];
   const mime = pickMime();
@@ -395,8 +483,10 @@ export async function makeVideo(data, opt, ui) {
     src.start(t0); src.stop(t0 + total + 0.2); sources.push(src);
   }
   scenes.filter(s => s.type === 'card' && s.vd).forEach(s => {
-    const at = t0 + s.start + 0.3, src = ac.createBufferSource();
-    src.buffer = stops[s.i].voice.buf; src.connect(vg); src.start(at, 0, s.vd); sources.push(src);
+    const at = t0 + s.start + 0.3, src = ac.createBufferSource(), vgn = ac.createGain(), v = stops[s.i].voice;
+    src.buffer = v.buf; src.connect(vgn); vgn.connect(vg);
+    if (v.trim) { vgn.gain.setValueAtTime(1, at + s.vd - 0.6); vgn.gain.linearRampToValueAtTime(0.0001, at + s.vd); }
+    src.start(at, 0, s.vd + 0.05); sources.push(src);
     mg.gain.setTargetAtTime(DUCK, at - 0.2, 0.08);
     mg.gain.setTargetAtTime(MV, at + s.vd + 0.1, 0.25);
   });
@@ -417,7 +507,7 @@ export async function makeVideo(data, opt, ui) {
   sources.forEach(s => { try { s.stop(); } catch (e) {} });
   rec.stop(); await stopped;
   tracks.forEach(t => t.stop());
-  stops.forEach(st => st.all.forEach(it => { if (it.kind === 'video') { it.el.pause(); URL.revokeObjectURL(it.el.src); } }));
+  stops.forEach(st => st.items.forEach(it => { if (it.layout === 'video' && it.el.pause) { it.el.pause(); URL.revokeObjectURL(it.el.src); } }));
   if (cancelled) return null;
   const type = (rec.mimeType || mime || 'video/mp4').split(';')[0];
   return { blob: new Blob(chunks, { type }), type, total };
@@ -426,15 +516,15 @@ export async function makeVideo(data, opt, ui) {
 // 預估長度（不載入素材，大約值）
 export async function estimate(data, opt) {
   const L = adultLayout(data.cs, opt.style, MW, MH);
-  // 三種標記的圖：大人花、孩子蜜蜂、一起採蜜
-  const mkImg = {};
-  for (const [k, c] of [['a', { adult: true, kid: false }], ['k', { adult: false, kid: true }], ['b', { adult: true, kid: true }]]) mkImg[k] = await svgToImage(markerOnlySVG(c), 48, 48, 8).catch(() => null);
-  const mkOf = c => mkImg[isKid(c) && isAdult(c) ? 'b' : isKid(c) ? 'k' : 'a'];
-  let t = V.introSec + V.overviewSec + V.outroSec + (L.days.length > 1 ? L.days.length * (V.daySec || 1.6) : 0);
-  for (const c of L.pts) {
+  let t = V.introSec + V.overviewSec + V.outroSec + (L.days.length > 1 ? L.days.length * (V.daySec || 1.6) : 0), prev = false;
+  const all = [...data.cs].sort((a, b) => a.ts - b.ts);
+  for (const c of all) {
     const ms = await store.listMedia(c.id);
-    const vis = Math.min(3, ms.filter(m => m.kind !== 'audio').length), au = opt.voices && ms.some(m => m.kind === 'audio');
-    t += V.flySec + (vis || au ? Math.max(vis * V.photoSec, au ? 4 : 0, 2.2) : V.passSec);
+    const items = layoutItems(c, selectVisuals(ms), opt);
+    const au = opt.voices ? pickVoice(c, ms) : null;
+    const located = c.lat != null;
+    if (located) { t += prev ? V.flySec : 1.1; prev = true; }
+    t += stopDuration(items, au ? voiceLen(c, au) : 0) || (located ? V.passSec : 0);
   }
-  return { sec: Math.round(Math.min(t, V.maxSec + 10)), stops: L.pts.length };
+  return { sec: Math.round(t), stops: all.length };
 }

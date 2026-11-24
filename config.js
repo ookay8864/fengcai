@@ -3,7 +3,7 @@
 // 之後換成雲端儲存、換地圖服務、調整上限，主要改這裡。
 // ==========================================================
 export const CONFIG = {
-  version: '0.5.0',
+  version: '0.6.0',
   storage: 'local',      // 'local'＝存在手機本機；之後做好雲端改成 'cloud'
   map: 'amap',           // 地點搜尋服務：目前是高德；國外版之後可加其他服務
   nearbyRadius: 400,     // 搜尋附近地點的範圍（公尺）
@@ -22,12 +22,13 @@ export const CONFIG = {
     overviewSec: 1.6,    // 整張地圖
     daySec: 1.8,         // 換天的過場（第 N 天）
     flySec: 1.3,         // 蜜蜂飛到下一站
-    photoSec: 1.9,       // 每張照片
+    photoSec: 1.9,       // 每張直拍照片（焦點拉遠）
+    panSec: 2.8,         // 橫拍照片平移掃過
+    cardSec: 2.4,        // 完整照片卡
+    stackSec: 2.8,       // 兩張橫拍上下拼貼
     clipSec: 4,          // 影片片段最長秒數
-    voiceMaxSec: 6,      // 每站錄音最長秒數
     passSec: 1,          // 沒有照片的站
     outroSec: 4.6,       // 片尾（明信片）
-    maxSec: 75,          // 超過就自動精簡
     tagline: '蜂采 · 飛到哪，甜到哪'
   }
 };
