@@ -71,9 +71,18 @@ function flowerShape(x, y, r) {
   }).join('');
   return `${petals}<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(r * .5)}" class="mk-center"/><circle cx="${f1(x - r * .15)}" cy="${f1(y - r * .15)}" r="${f1(r * .14)}" class="mk-hi"/>`;
 }
-export function markerSVG(x, y, c, num, s = 1, cls = '') {
+// photo：照片網址（data:），放進花心或蜜蜂的圓圈裡
+export function markerSVG(x, y, c, num, s = 1, cls = '', photo = null) {
   const kid = isKid(c), adult = isAdult(c);
   let g = '';
+  if (photo) {
+    const id = `ph${++seq}`, pr = (adult ? 9.6 : 11.5) * s;
+    if (adult) g += flowerShape(x, y, 15 * s).replace(/class="mk-center"/, 'class="mk-photo-ring"').replace(/<circle[^>]*class="mk-hi"\/>/, '');
+    else g += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(pr + 2.6 * s)}" class="mk-kidring"/>`;
+    g += `<clipPath id="${id}"><circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(pr)}"/></clipPath><image href="${photo}" x="${f1(x - pr)}" y="${f1(y - pr)}" width="${f1(pr * 2)}" height="${f1(pr * 2)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${id})"/><circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(pr)}" class="mk-photo-edge"/>`;
+    if (kid) g += `<g transform="translate(${f1(x + 11 * s)} ${f1(y - 11 * s)}) scale(${f1(.62 * s)})">${BEE}</g>`;
+    return `<g class="mk ${cls}" style="transform-origin:${f1(x)}px ${f1(y)}px">${g}</g>`;
+  }
   if (adult) g += flowerShape(x, y, 12 * s);
   if (kid && !adult) g += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(14 * s)}" class="mk-kidbg"/><g transform="translate(${f1(x)} ${f1(y + 2 * s)}) scale(${f1(1.05 * s)})">${BEE}</g>`;
   if (kid && adult) g += `<g transform="translate(${f1(x + 3 * s)} ${f1(y - 6 * s)}) scale(${f1(.8 * s)})">${BEE}</g>`;
@@ -127,7 +136,7 @@ function scaleBar(s, W, H) {
 function svgAdult(pts, info, style, W, H, seed, view = {}) {
   const id = `m${++seq}`;
   const cute = style === 'cute';
-  const { xy, s } = project(pts, W, H, 42, cute ? 32 : 28);
+  const { xy, s } = project(pts, W, H, 42, view.photos ? 44 : view.tags ? 34 : cute ? 32 : 28);
   const R = rng(seed);
   const sel = view.day == null ? null : view.day;
   const all = sel == null && !view.video;
@@ -144,9 +153,28 @@ function svgAdult(pts, info, style, W, H, seed, view = {}) {
   // 地名：只在看某一天時標，放在標記的下、上、右、左，放不下就省略
   const boxes = xy.filter((_, i) => on(i)).map(([x, y]) => [x - 15, y - 15, x + 19, y + 19]);
   const hit = b => boxes.some(o => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]) || b[0] < 2 || b[2] > W - 2 || b[1] < 2 || b[3] > H - 2;
+  // tags 模式（明信片用）：每個標記寫「天-站 地名」，放不下就只寫「天-站」
+  const tagOf = c => (info.days.length > 1 ? `${info.dayOf(c) + 1}-${info.num(c)}` : `${info.num(c)}`);
+  const R0 = view.tags ? (view.photos ? 22 : 17) : 15;
+  if (view.tags) boxes.splice(0, boxes.length, ...xy.map(([x, y]) => [x - R0, y - R0, x + R0, y + R0]));
+  const place = (x, y, text, cw, r) => {
+    const w = text.length * cw + 6;
+    const spots = [[x, y + r + 14, 'middle', [x - w / 2, y + r + 3, x + w / 2, y + r + 17]], [x + r + 3, y + 4, 'start', [x + r + 2, y - 7, x + r + 2 + w, y + 7]], [x - r - 3, y + 4, 'end', [x - r - 2 - w, y - 7, x - r - 2, y + 7]], [x, y - r - 5, 'middle', [x - w / 2, y - r - 17, x + w / 2, y - r - 3]]];
+    return spots.find(p => !hit(p[3]));
+  };
   const labels = pts.map((c, i) => {
+    const [x, y] = xy[i];
+    if (view.tags) {
+      const tag = tagOf(c), full = `${tag} ${shortName(c.placeName)}`;
+      let sp = place(x, y, full, 10.5, R0 + 1), text = full;
+      if (!sp) { sp = place(x, y, tag, 7, R0 + 1); text = tag; }
+      if (!sp) return `<g><circle cx="${f1(x + R0 - 3)}" cy="${f1(y + R0 - 3)}" r="9" class="mk-badge"/><text x="${f1(x + R0 - 3)}" y="${f1(y + R0 - 3)}" dy=".35em" class="mk-num" style="font-size:${tag.length > 2 ? 7.5 : 9}px">${tag}</text></g>`;
+      boxes.push(sp[3]);
+      const [nb, ...rest] = text.split(' ');
+      return `<text x="${f1(sp[0])}" y="${f1(sp[1])}" class="m-label" text-anchor="${sp[2]}"><tspan class="m-tag">${esc(nb)}</tspan>${rest.length ? ' ' + esc(rest.join(' ')) : ''}</text>`;
+    }
     if (cute || sel == null || !on(i)) return '';
-    const [x, y] = xy[i], name = shortName(c.placeName), w = name.length * 10.5 + 4;
+    const name = shortName(c.placeName), w = name.length * 10.5 + 4;
     const spots = [[x, y + 29, 'middle', [x - w / 2, y + 19, x + w / 2, y + 32]], [x, y - 20, 'middle', [x - w / 2, y - 31, x + w / 2, y - 17]], [x + 21, y + 4, 'start', [x + 20, y - 7, x + 20 + w, y + 7]], [x - 18, y + 4, 'end', [x - 17 - w, y - 7, x - 17, y + 7]]];
     const sp = spots.find(p => !hit(p[3]));
     if (!sp) return '';
@@ -156,13 +184,14 @@ function svgAdult(pts, info, style, W, H, seed, view = {}) {
   const sc = cute ? 1.2 : 1;
   const mk = i => {
     const c = pts[i], [x, y] = xy[i], faded = !on(i);
-    const n = view.video || (sel != null && !faded) ? info.num(c) : null;
-    return `<g class="pick${faded ? ' faded' : ''}" data-id="${c.id}">${markerSVG(x, y, c, n, sc, !faded && cute ? 'bob' : '')}${labels[i]}</g>`;
+    const n = view.tags ? null : view.video || (sel != null && !faded) ? info.num(c) : null;
+    const ph = view.photos && view.photos[c.id];
+    return `<g class="pick${faded ? ' faded' : ''}" data-id="${c.id}">${markerSVG(x, y, c, n, ph ? 1.25 : sc, !faded && cute && !view.tags ? 'bob' : '', ph)}${labels[i]}</g>`;
   };
   const faded = pts.map((_, i) => (on(i) ? '' : mk(i))).join(''), active = pts.map((_, i) => (on(i) ? mk(i) : '')).join('');
   // 「全部」：每天的區域旁標「第 N 天」
   const pillBoxes = [];
-  const pills = all ? info.days.map((d, k) => {
+  const pills = all && !view.tags ? info.days.map((d, k) => {
     const idx = pts.map((c, i) => (info.dayOf(c) === k ? i : -1)).filter(i => i >= 0);
     if (!idx.length) return '';
     const mx = idx.reduce((a, i) => a + xy[i][0], 0) / idx.length, my = idx.reduce((a, i) => a + xy[i][1], 0) / idx.length;

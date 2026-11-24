@@ -15,7 +15,7 @@ export const PC_W = 1080, PC_H = 1350;
 export const SIZES = { '4:5': 1350, '9:16': 1920, '1:1': 1080 };
 export const PALETTES = { honey: '蜂蜜黃', sakura: '櫻花粉', mint: '薄荷綠', night: '夜空藍' };
 export const TEMPLATES = { A: '旅程總覽', B: '照片拼貼', C: '一日一張', D: '孩子的花園' };
-export const DEFAULT_PC = { tpl: 'A', size: '4:5', palette: 'honey', style: 'normal', show: { list: true, stats: true, photos: true, quote: true }, title: '', subtitle: '', quote: '', photoIds: null, day: 0 };
+export const DEFAULT_PC = { tpl: 'A', size: '4:5', palette: 'honey', style: 'normal', show: { list: true, stats: true, photos: true, quote: true, mapPhotos: true }, title: '', subtitle: '', quote: '', photoIds: null, day: 0 };
 
 const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('圖片載入失敗')); i.src = src; });
 async function blobImg(b) {
@@ -156,6 +156,17 @@ async function pickPhotos(data, opt, n) {
   }
   return out;
 }
+// 每一站放在花心裡的小照片（精選優先）
+const toData = b => new Promise(res => { const f = new FileReader(); f.onload = () => res(f.result); f.onerror = () => res(null); f.readAsDataURL(b); });
+async function stopPhotos(data) {
+  const out = {};
+  for (const c of data.cs) {
+    const m = data.media.find(x => x.c.id === c.id);
+    const b = m && (m.thumb || (m.kind === 'photo' ? m.blob : null));
+    if (b) out[c.id] = await toData(b);
+  }
+  return out;
+}
 async function mapImg(cs, style, w, h, seed, view) {
   const svg = adultMapSVG(cs, style, w, h, seed, view);
   return svg ? svgToImage(svg, w, h, 3, finishRoute) : null;
@@ -202,8 +213,9 @@ function dayLists(ctx, P, mk, data, x, y, w, h) {
     if (list.length > maxLines) { more = list.length - (maxLines - 1); list = list.slice(0, maxLines - 1); }
     list.forEach(c => {
       const im = mk[mkKey(c)]; if (im) ctx.drawImage(im, cx - 4, yy + 2, 40, 40);
-      ctx.font = `600 24px ${FONT}`; const tw = ctx.measureText(fmtTime(c.ts)).width;
-      T(ctx, fmtTime(c.ts), cx + 42, yy + 31, 24, P.soft, 600);
+      const tag = info.days.length > 1 ? `${info.dayOf(c) + 1}-${info.num(c)}` : `${info.num(c)}`;
+      ctx.font = `800 24px ${FONT}`; const tw = ctx.measureText(tag).width;
+      T(ctx, tag, cx + 42, yy + 31, 24, P.accent, 800);
       ctx.font = `700 28px ${FONT}`;
       T(ctx, fit(ctx, short(c.placeName), cw - 56 - tw), cx + 52 + tw, yy + 31, 28, P.ink, 700);
       yy += lh;
@@ -238,7 +250,7 @@ export async function renderPostcard(data, o = {}) {
   const quote = (opt.quote || '').trim();
 
   if (opt.tpl === 'B') {
-    const pics = opt.show.photos !== false ? await pickPhotos(data, opt, 4) : [];
+    const pics = await pickPhotos(data, opt, 4);
     const X = 60, Y = 60, Wd = W - 120, Ht = Math.round(H * (H > 1500 ? .56 : H < 1200 ? .46 : .52));
     if (!pics.length) { rr(ctx, X, Y, Wd, Ht, 34); ctx.fillStyle = P.card; ctx.fill(); T(ctx, '這趟旅程還沒有照片', W / 2, Y + Ht / 2, 36, P.soft, 700, 'center'); }
     else if (pics.length === 1) cover(ctx, pics[0].img, X, Y, Wd, Ht, 34, pics[0].f);
@@ -248,7 +260,7 @@ export async function renderPostcard(data, o = {}) {
     const by = Y + Ht + 36, qh = opt.show.quote && quote ? 110 : 0;
     const ms = Math.max(260, Math.min(H > 1500 ? 520 : 440, H - by - 90 - qh));
     shadowCard(ctx, 60, by, ms, ms, 36, P.card);
-    const mi = await mapImg(data.cs, opt.style, 360, 360, data.trip.id);
+    const mi = await mapImg(data.cs, opt.style, 360, 360, data.trip.id, { tags: true, photos: opt.show.mapPhotos ? await stopPhotos(data) : null });
     if (mi) { ctx.save(); rr(ctx, 74, by + 14, ms - 28, ms - 28, 26); ctx.clip(); ctx.drawImage(mi, 74, by + 14, ms - 28, ms - 28); ctx.restore(); }
     const tx = 60 + ms + 36, tw = W - 60 - tx;
     if (logo) ctx.drawImage(logo, tx, by, 48, 48);
@@ -356,7 +368,8 @@ export async function renderPostcard(data, o = {}) {
     let y = header(ctx, P, logo, data, opt, W) + 10;
     const pics = opt.show.photos ? await pickPhotos(data, opt, 4) : [];
     const footerH = 70;
-    const tall = H > 1500;
+    const tall = H > 1500, notes = [];
+    cv.notes = notes;
     let photoH = pics.length ? (tall ? 280 : 210) : 0, statsH = opt.show.stats ? (tall ? 120 : 100) : 0, quoteH = opt.show.quote && quote ? 90 : 0;
     const info = dayInfo(data.cs);
     let listH = 0;
@@ -367,12 +380,14 @@ export async function renderPostcard(data, o = {}) {
     }
     const gaps = [listH, statsH, photoH, quoteH].filter(Boolean).length * 24;
     let mapH = H - y - footerH - listH - statsH - photoH - quoteH - gaps;
-    if (mapH < 270 && photoH) { mapH += photoH + 24; photoH = 0; }
-    if (mapH < 280 && listH > 142) { const cut = Math.min(listH - 142, 280 - mapH); listH -= cut; mapH += cut; }
+    // 照片優先：先縮行程清單、再縮數字列，真的不夠才拿掉照片（並提示）
+    if (mapH < 270 && listH > 142) { const cut = Math.min(listH - 142, 270 - mapH); listH -= cut; mapH += cut; }
+    if (mapH < 270 && statsH > 90) { mapH += statsH - 90; statsH = 90; }
+    if (mapH < 230 && photoH) { mapH += photoH + 24; photoH = 0; notes.push('照片'); }
     mapH = Math.max(220, mapH);
     shadowCard(ctx, 60, y, W - 120, mapH, 40, P.card);
     const mw = 480, mh = Math.round(480 * (mapH - 36) / (W - 156));
-    const mi = await mapImg(data.cs, opt.style, mw, mh, data.trip.id);
+    const mi = await mapImg(data.cs, opt.style, mw, mh, data.trip.id, { tags: true, photos: opt.show.mapPhotos ? await stopPhotos(data) : null });
     if (mi) { ctx.save(); rr(ctx, 78, y + 18, W - 156, mapH - 36, 28); ctx.clip(); ctx.drawImage(mi, 78, y + 18, W - 156, mapH - 36); ctx.restore(); }
     else T(ctx, '這趟旅程還沒有定位資料', W / 2, y + mapH / 2, 32, P.soft, 600, 'center');
     y += mapH + 24;

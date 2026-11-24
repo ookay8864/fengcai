@@ -560,7 +560,7 @@ async function cardView(id) {
     <h1 class="h1">足跡明信片</h1>
     <div class="tplrow" role="group" aria-label="版型">${Object.entries(TEMPLATES).map(([k, n]) => `<button data-tpl="${k}" class="${pc.tpl === k ? 'on' : ''}"><svg viewBox="0 0 60 75" width="60" height="75" aria-hidden="true">${TPL_THUMB[k]}</svg><span>${k} ${n}</span></button>`).join('')}</div>
     <div class="dayseg" id="pcday"></div>
-    <div class="pcchips" role="group" aria-label="調整">${[['show', '顯示內容'], ['photos', '照片'], ['color', '配色'], ['text', '文字'], ['size', '尺寸']].map(([k, n]) => `<button data-p="${k}">${n}</button>`).join('')}</div>
+    <div class="pcchips" id="pcchips" role="group" aria-label="調整"></div>
     <div id="pcpanel" class="pcpanel" hidden></div>
     <div class="pc-prev"><img id="pimg" alt="明信片預覽"><p id="pinfo" class="muted">產生中…</p></div>
     <div class="row"><button class="btn main" id="psave">${icon('check')}儲存到相簿／分享</button></div>
@@ -574,7 +574,8 @@ async function cardView(id) {
       blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.92));
       if (url) URL.revokeObjectURL(url);
       url = URL.createObjectURL(blob);
-      $('#pimg').src = url; $('#pinfo').textContent = '';
+      $('#pimg').src = url;
+      $('#pinfo').textContent = cv.notes && cv.notes.length ? `這個尺寸放不下：${cv.notes.join('、')}。可以改成 9:16，或在「顯示內容」關掉行程清單。` : '';
     } catch (e) { console.error(e); $('#pinfo').textContent = '產生失敗：' + e.message; }
   };
   const changed = (delay = 0) => { save(); clearTimeout(timer); timer = setTimeout(gen, delay); };
@@ -586,19 +587,29 @@ async function cardView(id) {
     el.querySelectorAll('[data-pd]').forEach(b => b.onclick = () => { pc.day = +b.dataset.pd; drawDays(); changed(); });
   };
   drawDays();
+  // 每個版型只顯示用得到的調整按鈕
+  const CHIPS = { A: ['show', 'photos', 'color', 'text', 'size'], B: ['show', 'photos', 'color', 'text', 'size'], C: ['show', 'color', 'text', 'size'], D: ['show', 'color', 'text', 'size'] };
+  const CHIPNAME = { show: '顯示內容', photos: '照片', color: '配色', text: '文字', size: '尺寸' };
+  const drawChips = () => {
+    $('#pcchips').innerHTML = CHIPS[pc.tpl].map(k => `<button data-p="${k}" class="${panel === k ? 'on' : ''}">${CHIPNAME[k]}</button>`).join('');
+    $('#pcchips').querySelectorAll('[data-p]').forEach(b => b.onclick = () => openPanel(b.dataset.p));
+  };
   view.querySelectorAll('[data-tpl]').forEach(b => b.onclick = () => {
     pc.tpl = b.dataset.tpl;
     view.querySelectorAll('[data-tpl]').forEach(x => x.classList.toggle('on', x === b));
-    drawDays(); if (panel === 'show') openPanel('show', true); changed();
+    if (panel && !CHIPS[pc.tpl].includes(panel)) { panel = null; $('#pcpanel').hidden = true; }
+    drawChips(); drawDays();
+    if (panel) openPanel(panel, true);
+    changed();
   });
   const sw = (k, v) => `<button data-sw="${k}" class="${pc.show[k] ? 'on' : ''}" aria-pressed="${pc.show[k] ? 'true' : 'false'}">${icon('check')}${v}</button>`;
   const openPanel = async (k, keep) => {
     const el = $('#pcpanel');
-    if (panel === k && !keep) { panel = null; el.hidden = true; view.querySelectorAll('[data-p]').forEach(x => x.classList.remove('on')); return; }
+    if (panel === k && !keep) { panel = null; el.hidden = true; $('#pcchips').querySelectorAll('[data-p]').forEach(x => x.classList.remove('on')); return; }
     panel = k; el.hidden = false;
-    view.querySelectorAll('[data-p]').forEach(x => x.classList.toggle('on', x.dataset.p === k));
+    $('#pcchips').querySelectorAll('[data-p]').forEach(x => x.classList.toggle('on', x.dataset.p === k));
     if (k === 'show') {
-      const opts = pc.tpl === 'D' ? [['stats', '章數'], ['quote', '一句話']] : pc.tpl === 'C' ? [['photos', '每站照片'], ['quote', '一句話']] : pc.tpl === 'B' ? [['photos', '照片'], ['list', '行程清單'], ['stats', '旅程數字'], ['quote', '一句話']] : [['list', '行程清單'], ['stats', '旅程數字'], ['photos', '照片'], ['quote', '一句話']];
+      const opts = pc.tpl === 'D' ? [['stats', '章數'], ['quote', '一句話']] : pc.tpl === 'C' ? [['photos', '每站照片'], ['quote', '一句話']] : pc.tpl === 'B' ? [['list', '行程清單'], ['stats', '旅程數字'], ['mapPhotos', '地圖花心照片'], ['quote', '一句話']] : [['list', '行程清單'], ['stats', '旅程數字'], ['photos', '照片'], ['mapPhotos', '地圖花心照片'], ['quote', '一句話']];
       el.innerHTML = `<div class="pcsw">${opts.map(([a, b]) => sw(a, b)).join('')}</div>${pc.show.quote && !pc.quote ? '<p class="muted sm">一句話要在「文字」裡填寫。</p>' : ''}`;
       el.querySelectorAll('[data-sw]').forEach(b => b.onclick = () => { pc.show[b.dataset.sw] = !pc.show[b.dataset.sw]; openPanel('show', true); changed(); });
     } else if (k === 'photos') {
@@ -614,15 +625,15 @@ async function cardView(id) {
       if ($('#phreset')) $('#phreset').onclick = () => { pc.photoIds = null; openPanel('photos', true); changed(); };
     } else if (k === 'color') {
       el.innerHTML = `<p class="lbl" style="margin-top:0">配色</p><div class="pcpal">${Object.entries(PALETTES).map(([key, n]) => `<button data-pal="${key}" class="pal-${key}${pc.palette === key ? ' on' : ''}"><i></i>${n}</button>`).join('')}</div>
-        <p class="lbl">地圖樣式</p><div class="seg"><button data-ms="normal" class="${pc.style === 'normal' ? 'on' : ''}">正常版</button><button data-ms="cute" class="${pc.style === 'cute' ? 'on' : ''}">可愛版</button></div>`;
+        ${pc.tpl === 'D' ? '' : `<p class="lbl">地圖樣式</p><div class="seg"><button data-ms="normal" class="${pc.style === 'normal' ? 'on' : ''}">正常版</button><button data-ms="cute" class="${pc.style === 'cute' ? 'on' : ''}">可愛版</button></div>`}`;
       el.querySelectorAll('[data-pal]').forEach(b => b.onclick = () => { pc.palette = b.dataset.pal; openPanel('color', true); changed(); });
       el.querySelectorAll('[data-ms]').forEach(b => b.onclick = () => { pc.style = b.dataset.ms; openPanel('color', true); changed(); });
     } else if (k === 'text') {
       el.innerHTML = `<label class="lbl" for="pt" style="margin-top:0">標題</label><input id="pt" class="inp" maxlength="24" placeholder="${esc(t.name)}" value="${esc(pc.title)}">
-        <label class="lbl" for="ps">副標題（可不填）</label><input id="ps" class="inp" maxlength="24" placeholder="例如：全家第一次去雲南" value="${esc(pc.subtitle)}">
+        ${pc.tpl === 'D' ? '' : `<label class="lbl" for="ps">副標題（可不填）</label><input id="ps" class="inp" maxlength="24" placeholder="例如：全家第一次去雲南" value="${esc(pc.subtitle)}">`}
         <label class="lbl" for="pq">一句話（可不填）</label><input id="pq" class="inp" maxlength="30" placeholder="例如：今天的米線最好吃！" value="${esc(pc.quote)}">`;
       $('#pt').oninput = e => { pc.title = e.target.value; changed(500); };
-      $('#ps').oninput = e => { pc.subtitle = e.target.value; changed(500); };
+      if ($('#ps')) $('#ps').oninput = e => { pc.subtitle = e.target.value; changed(500); };
       $('#pq').oninput = e => { pc.quote = e.target.value; if (e.target.value) pc.show.quote = true; changed(500); };
     } else if (k === 'size') {
       const names = { '4:5': '4:5 貼文', '9:16': '9:16 限時動態', '1:1': '1:1 正方形' };
@@ -630,7 +641,7 @@ async function cardView(id) {
       el.querySelectorAll('[data-sz]').forEach(b => b.onclick = () => { pc.size = b.dataset.sz; openPanel('size', true); changed(); });
     }
   };
-  view.querySelectorAll('[data-p]').forEach(b => b.onclick = () => openPanel(b.dataset.p));
+  drawChips();
   $('#psave').onclick = async () => {
     if (!blob) return;
     const file = new File([blob], `fengcai-postcard-${new Date().toISOString().slice(0, 10)}.jpg`, { type: 'image/jpeg' });
