@@ -1,7 +1,7 @@
 // 蜂采 大人頁面
 import { CONFIG, getSetting, setSetting } from './config.js';
 import { store, ensureActiveTrip, getActiveId, setActiveId, askPersist, isKid, isAdult, findMergeTarget, getMode, startTrip, resumeTrip, endTrip, isDaily, moveDaysToTrip } from './store.js';
-import { getPosition, peekPosition, nearby, badgeOf, BADGES, shortType, isDemo, amapLink } from './geo.js';
+import { getPosition, peekPosition, nearby, badgeOf, BADGES, shortType, isDemo, amapLink, testAMap } from './geo.js';
 import { compressImage, videoThumb, startRecorder, blobDims } from './media.js';
 import { mountMap, gardenSVG, dayInfo, defaultDay, markerSVG, markerNumSVG, whoText } from './map.js';
 import { allThemes, getTheme, themeIcon, itemIcon, ITEMS, GROUNDS, listCustom, saveCustom, deleteCustom } from './themes.js';
@@ -569,14 +569,19 @@ async function mapView(id) {
   const scope = !id && getSetting('mapScope') === 'all' ? 'all' : 'pack';
   const h = Math.max(320, Math.min(560, window.innerHeight - 330));
   const scopeSeg = `<div class="seg scopeseg" role="group" aria-label="地圖範圍"><button data-sc="pack" class="${scope === 'pack' ? 'on' : ''}">這一包</button><button data-sc="all" class="${scope === 'all' ? 'on' : ''}">全部足跡</button></div>`;
-  const keyNote = getSetting('amapKey') ? '' : '<p class="muted sm" style="margin-top:10px">目前是插畫地圖；到「設定」填入高德金鑰後，會換成真實的城市地圖，也會顯示你現在的位置（藍點）。</p>';
+  const keyNote = getSetting('amapKey') ? '<div id="mapnote"></div>' : `<div class="mapnote">${icon('map')}<div><b>現在是插畫地圖</b><p>到「設定」填入高德地圖的 Key 和安全密鑰，就會換成真實的城市地圖，並顯示你現在的位置（藍點）。</p><a class="btn sm main" href="#settings">去設定</a></div></div>`;
   const bindScope = () => view.querySelectorAll('[data-sc]').forEach(b => b.onclick = () => {
     if (b.dataset.sc === scope && !id) return;
     setSetting('mapScope', b.dataset.sc);
     if (location.hash === '#map') rerender(); else location.hash = 'map';
   });
   // 地圖畫好之後，再放上「我在這裡」
-  const showMe = () => { const ctl = curMap; peekPosition().then(p => { if (ctl && curMap === ctl) ctl.setMe(p); }).catch(() => {}); };
+  const showMe = () => {
+    const ctl = curMap, note = $('#mapnote');
+    if (ctl && ctl.amapFailed && note) { note.className = 'mapnote warn'; note.innerHTML = `${icon('map')}<div><b>高德地圖沒有載入成功</b><p>所以先用插畫地圖。到「設定」按「測試」，會告訴你是哪裡要修改。</p><a class="btn sm main" href="#settings">去設定測試</a></div>`; return; }
+    if (!ctl || ctl.kind !== 'amap') return;
+    peekPosition().then(p => { if (curMap === ctl) ctl.setMe(p); }).catch(() => { if (note && curMap === ctl) { note.className = 'mapnote'; note.innerHTML = `${icon('map')}<div><b>沒有拿到你的位置</b><p>請到 iPhone「設定 → 隱私權與安全性 → 定位服務 → Safari 網站」選「使用 App 期間」，再重新打開蜂采。</p></div>`; } });
+  };
 
   if (scope === 'all') {
     const ts = await store.listTrips();
@@ -1120,11 +1125,12 @@ async function settings() {
       <div class="row"><a class="btn sm" href="kid.html">打開兒童頁面看看</a></div>
     </section>
     <section class="sec">
-      <h2 class="h2">高德地圖（附近地點清單）</h2>
+      <h2 class="h2">高德地圖（真實地圖、附近地點）</h2>
       <p class="muted sm">到高德開放平台建立「Web 端（JS API）」應用後，把 Key 和安全密鑰貼在這裡。只存在這支手機上。</p>
       <label class="lbl" for="ak">Key</label><input id="ak" class="inp" value="${esc(getSetting('amapKey'))}" autocomplete="off" autocapitalize="off" spellcheck="false">
       <label class="lbl" for="as">安全密鑰</label><input id="as" class="inp" value="${esc(getSetting('amapSec'))}" autocomplete="off" autocapitalize="off" spellcheck="false">
-      <div class="row"><button class="btn main sm" id="saveKey">儲存</button></div>
+      <div class="row"><button class="btn main sm" id="saveKey">儲存</button><button class="btn sm" id="testKey">測試</button></div>
+      <p id="keyres" class="keyres" hidden></p>
     </section>
     <section class="sec">
       <h2 class="h2">備份</h2>
@@ -1156,7 +1162,14 @@ async function settings() {
   view.querySelectorAll('[data-cdel]').forEach(b => b.onclick = async () => { if (await confirmDlg('刪除這個自訂主題？已經用這個主題的日子會變回預設草地。', '刪除')) { deleteCustom(b.dataset.cdel); rerender(); } });
   $('#demo').onchange = e => { setSetting('demo', e.target.checked ? '1' : ''); toast(e.target.checked ? '已開啟模擬模式' : '已關閉模擬模式'); };
   view.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast('已複製'); } catch (e) { toast('無法複製，請長按網址手動複製'); } });
-  $('#saveKey').onclick = () => { setSetting('amapKey', $('#ak').value.trim()); setSetting('amapSec', $('#as').value.trim()); toast('已儲存，重新整理後生效'); };
+  $('#saveKey').onclick = () => { setSetting('amapKey', $('#ak').value.trim()); setSetting('amapSec', $('#as').value.trim()); toast('已儲存，馬上重新載入'); setTimeout(() => location.reload(), 900); };
+  $('#testKey').onclick = async () => {
+    const box = $('#keyres');
+    if ($('#ak').value.trim() !== getSetting('amapKey') || $('#as').value.trim() !== getSetting('amapSec')) { box.hidden = false; box.className = 'keyres warn'; box.textContent = '你改了 Key 或安全密鑰，請先按「儲存」，重新載入後再按「測試」。'; return; }
+    box.hidden = false; box.className = 'keyres'; box.textContent = '測試中…';
+    const r = await testAMap();
+    box.className = 'keyres ' + (r.ok ? 'ok' : 'warn'); box.textContent = (r.ok ? '✓ ' : '✗ ') + r.msg;
+  };
   $('#exp').onclick = async () => {
     toast('正在打包備份…');
     try {

@@ -143,6 +143,33 @@ export async function nearby(lat, lng) {
   });
 }
 
+// ---------- 高德地圖：檢查設定哪裡有問題 ----------
+const AMAP_ERR = {
+  INVALID_USER_KEY: 'Key 不正確：請到高德開放平台複製 Key 再貼一次（注意前後不要有空白）。',
+  INVALID_USER_SCODE: '安全密鑰不正確或沒有填：高德後台 Key 旁邊的「安全密鑰」也要貼到這裡。',
+  USERKEY_PLAT_NOMATCH: 'Key 的類型不對：要建立「Web 端（JS API）」的 Key，不是「Web 服務」或 App 的 Key。',
+  INVALID_USER_DOMAIN: '網域沒有加進白名單：到高德後台這個 Key 的設定，把 ookay8864.github.io 加進「域名白名單」，或先清空白名單。',
+  INVALID_USER_IP: 'IP 白名單限制：到高德後台把這個 Key 的 IP 白名單清空。',
+  DAILY_QUERY_OVER_LIMIT: '今天的免費用量用完了，明天會自動恢復。',
+  USER_DAILY_QUERY_OVER_LIMIT: '今天的免費用量用完了，明天會自動恢復。',
+  SERVICE_NOT_AVAILABLE: '高德暫時無法使用，請稍後再試。'
+};
+export const amapErrText = code => AMAP_ERR[code] || `高德回覆：${code}`;
+export async function testAMap() {
+  if (!getSetting('amapKey')) return { ok: false, msg: '還沒有填 Key。' };
+  let AM;
+  try { AM = await loadAMap(); } catch (e) { return { ok: false, msg: '高德地圖的程式載入失敗：請確認網路正常（在中國大陸以外可能比較慢），再試一次。' }; }
+  if (!AM || !AM.PlaceSearch) return { ok: false, msg: '高德地圖的程式載入失敗，請重新整理再試。' };
+  return new Promise(res => {
+    const tm = setTimeout(() => res({ ok: false, msg: '高德沒有回應：可能是 Key 或安全密鑰不對，或網路太慢。' }), 9000);
+    new AM.PlaceSearch({ pageSize: 1 }).searchNearBy('', [114.0579, 22.5431], 500, (status, r) => {
+      clearTimeout(tm);
+      if (status === 'complete' || status === 'no_data') res({ ok: true, msg: '高德地圖連線成功！地圖分頁會顯示真實地圖和你的位置。' });
+      else res({ ok: false, code: String(r), msg: amapErrText(String(r)) });
+    });
+  });
+}
+
 // 在高德地圖 App／網頁中開啟某個點
 export function amapLink(lat, lng, name) {
   const [x, y] = wgs2gcj(lng, lat);

@@ -515,3 +515,10 @@ body.kid{background:var(--kid-bg) var(--pattern);color:var(--kid-ink)}
 .map-loc{position:absolute;right:12px;bottom:12px;z-index:5;width:44px;height:44px;border-radius:14px;border:0;background:var(--card);color:var(--me-dot,#3B82F6);box-shadow:var(--shadow);display:grid;place-items:center;cursor:pointer}
 .map-loc svg{width:24px;height:24px}
 .map-loc[hidden]{display:none}
+.mapnote{display:flex;gap:10px;align-items:flex-start;margin-top:12px;padding:12px;border-radius:var(--radius);background:var(--card);border:2px solid var(--line)}
+.mapnote:empty{display:none}
+.mapnote>.ic{width:24px;height:24px;color:var(--honey-deep);flex-shrink:0}
+.mapnote b{font-size:15px}.mapnote p{margin:4px 0 8px;font-size:13.5px;color:var(--ink-soft)}
+.mapnote.warn{border-color:var(--honey)}
+.keyres{margin:8px 0 0;padding:10px 12px;border-radius:12px;background:var(--bg);font-size:14px;line-height:1.5}
+.keyres.ok{background:#E6F5EA;color:#22663A}.keyres.warn{background:#FFF1D6;color:#7A4A00}

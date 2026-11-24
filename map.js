@@ -306,6 +306,9 @@ async function mountAMap(el, pts, info, opt) {
   const pos = pts.map(c => wgs2gcj(c.lng, c.lat));
   const mePos = () => (opt.me ? wgs2gcj(opt.me.lng, opt.me.lat) : null);
   const map = new AM.Map(box, { mapStyle: CONFIG.mapStyles[opt.style] || CONFIG.mapStyles.normal, zoom: pos.length ? 13 : 15, center: pos[0] || mePos() || [114.0579, 22.5431], resizeEnable: true });
+  // 等地圖真的畫出來；Key 有問題時高德不會畫，8 秒後改用插畫地圖並說明原因
+  await new Promise((res, rej) => { const tm = setTimeout(() => rej(new Error("timeout")), 12000); map.on('complete', () => { clearTimeout(tm); res(); }); })
+    .catch(e => { try { map.destroy(); } catch (x) {} throw e; });
   // 我的位置：藍點；右下角按鈕回到我的位置
   let meMk = null;
   const loc = document.createElement('button');
@@ -381,8 +384,9 @@ export async function mountMap(el, checkins, opt = {}) {
   const none = { kind: 'none', info, connect() {}, hideRoute() {}, setStyle() {}, setDay(d) { opt.day = d; }, setMe() {}, destroy() {} };
 
   if (getSetting('amapKey') && (pts.length || opt.wantMe)) {
-    try { const ctl = await mountAMap(el, pts, info, opt); ctl.info = info; return ctl; } catch (e) { console.warn('高德地圖無法載入，改用插畫地圖', e); }
+    try { const ctl = await mountAMap(el, pts, info, opt); ctl.info = info; return ctl; } catch (e) { console.warn('高德地圖無法載入，改用插畫地圖', e); opt.amapFailed = true; }
   }
+  none.amapFailed = !!opt.amapFailed;
   if (!pts.length) { el.innerHTML = '<p class="map-empty">打卡之後，這裡會開出第一朵花<br><small>想看以前去過的地方，點上面的「全部足跡」</small></p>'; return none; }
 
   let stop = null, connected = false;
@@ -398,7 +402,7 @@ export async function mountMap(el, checkins, opt = {}) {
   };
   let svg = draw();
   return {
-    kind: 'svg', info,
+    kind: 'svg', info, amapFailed: !!opt.amapFailed,
     connect() { connected = true; svg = draw(); hideRoute(svg); stop = animateRoute(svg); },
     hideRoute() { connected = false; svg = draw(); },
     setStyle(s) { opt.style = s; svg = draw(); },
