@@ -200,6 +200,7 @@ body.kid{background:var(--kid-bg) var(--pattern);color:var(--kid-ink)}
 .mk-photo-edge{fill:none;stroke:#fff;stroke-width:1.6}
 .mk-kidring{fill:var(--mk-kid-bg);stroke:var(--petal);stroke-width:1.5}
 .m-tag{font-weight:800;fill:var(--honey-deep)}
+.mk-center-num{fill:#fff;stroke:var(--mk-center);stroke-width:1.4}
 .mk-badge{fill:var(--mk-badge);stroke:var(--hive);stroke-width:1}
 .mk-num{fill:var(--hive);font-family:var(--font-num);font-weight:800;text-anchor:middle}
 .faded{opacity:.28}

@@ -72,7 +72,7 @@ function flowerShape(x, y, r) {
   return `${petals}<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(r * .5)}" class="mk-center"/><circle cx="${f1(x - r * .15)}" cy="${f1(y - r * .15)}" r="${f1(r * .14)}" class="mk-hi"/>`;
 }
 // photo：照片網址（data:），放進花心或蜜蜂的圓圈裡
-export function markerSVG(x, y, c, num, s = 1, cls = '', photo = null) {
+export function markerSVG(x, y, c, num, s = 1, cls = '', photo = null, numStyle = 'badge') {
   const kid = isKid(c), adult = isAdult(c);
   let g = '';
   if (photo) {
@@ -81,6 +81,18 @@ export function markerSVG(x, y, c, num, s = 1, cls = '', photo = null) {
     else g += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(pr + 2.6 * s)}" class="mk-kidring"/>`;
     g += `<clipPath id="${id}"><circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(pr)}"/></clipPath><image href="${photo}" x="${f1(x - pr)}" y="${f1(y - pr)}" width="${f1(pr * 2)}" height="${f1(pr * 2)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${id})"/><circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(pr)}" class="mk-photo-edge"/>`;
     if (kid) g += `<g transform="translate(${f1(x + 11 * s)} ${f1(y - 11 * s)}) scale(${f1(.62 * s)})">${BEE}</g>`;
+    return `<g class="mk ${cls}" style="transform-origin:${f1(x)}px ${f1(y)}px">${g}</g>`;
+  }
+  if (numStyle === 'center' && num != null) {
+    // 號碼放在花心（明信片用）：大人＝花、一起＝花＋蜜蜂、孩子＝蜜蜂＋號碼章
+    if (adult) {
+      g += flowerShape(x, y, 14 * s).replace(/<circle[^>]*class="mk-hi"\/>/, '').replace(/r="([\d.]+)" class="mk-center"/, `r="${f1(7.6 * s)}" class="mk-center-num"`);
+      g += `<text x="${f1(x)}" y="${f1(y)}" dy=".36em" class="mk-num" style="font-size:${f1((String(num).length > 1 ? 8.4 : 10) * s)}px">${num}</text>`;
+      if (kid) g += `<g transform="translate(${f1(x + 12 * s)} ${f1(y - 12 * s)}) scale(${f1(.62 * s)})">${BEE}</g>`;
+    } else {
+      g += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(14 * s)}" class="mk-kidbg"/><g transform="translate(${f1(x)} ${f1(y + 2 * s)}) scale(${f1(1.05 * s)})">${BEE}</g>`;
+      g += `<circle cx="${f1(x + 11 * s)}" cy="${f1(y + 11 * s)}" r="${f1(7.2 * s)}" class="mk-badge"/><text x="${f1(x + 11 * s)}" y="${f1(y + 11 * s)}" dy=".36em" class="mk-num" style="font-size:${f1(8.4 * s)}px">${num}</text>`;
+    }
     return `<g class="mk ${cls}" style="transform-origin:${f1(x)}px ${f1(y)}px">${g}</g>`;
   }
   if (adult) g += flowerShape(x, y, 12 * s);
@@ -136,7 +148,7 @@ function scaleBar(s, W, H) {
 function svgAdult(pts, info, style, W, H, seed, view = {}) {
   const id = `m${++seq}`;
   const cute = style === 'cute';
-  const { xy, s } = project(pts, W, H, 42, view.photos ? 44 : view.tags ? 34 : cute ? 32 : 28);
+  const { xy, s } = project(pts, W, H, 42, view.tags ? 36 : cute ? 32 : 28);
   const R = rng(seed);
   const sel = view.day == null ? null : view.day;
   const all = sel == null && !view.video;
@@ -155,7 +167,7 @@ function svgAdult(pts, info, style, W, H, seed, view = {}) {
   const hit = b => boxes.some(o => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]) || b[0] < 2 || b[2] > W - 2 || b[1] < 2 || b[3] > H - 2;
   // tags 模式（明信片用）：每個標記寫「天-站 地名」，放不下就只寫「天-站」
   const tagOf = c => (info.days.length > 1 ? `${info.dayOf(c) + 1}-${info.num(c)}` : `${info.num(c)}`);
-  const R0 = view.tags ? (view.photos ? 22 : 17) : 15;
+  const R0 = view.tags ? 19 : 15;
   if (view.tags) boxes.splice(0, boxes.length, ...xy.map(([x, y]) => [x - R0, y - R0, x + R0, y + R0]));
   const place = (x, y, text, cw, r) => {
     const w = text.length * cw + 6;
@@ -165,13 +177,12 @@ function svgAdult(pts, info, style, W, H, seed, view = {}) {
   const labels = pts.map((c, i) => {
     const [x, y] = xy[i];
     if (view.tags) {
-      const tag = tagOf(c), full = `${tag} ${shortName(c.placeName)}`;
-      let sp = place(x, y, full, 10.5, R0 + 1), text = full;
-      if (!sp) { sp = place(x, y, tag, 7, R0 + 1); text = tag; }
-      if (!sp) return `<g><circle cx="${f1(x + R0 - 3)}" cy="${f1(y + R0 - 3)}" r="9" class="mk-badge"/><text x="${f1(x + R0 - 3)}" y="${f1(y + R0 - 3)}" dy=".35em" class="mk-num" style="font-size:${tag.length > 2 ? 7.5 : 9}px">${tag}</text></g>`;
+      // 號碼已經在花心裡；旁邊放得下才寫地名
+      const name = shortName(c.placeName);
+      const sp = place(x, y, name, 10.5, R0 + 1);
+      if (!sp) return '';
       boxes.push(sp[3]);
-      const [nb, ...rest] = text.split(' ');
-      return `<text x="${f1(sp[0])}" y="${f1(sp[1])}" class="m-label" text-anchor="${sp[2]}"><tspan class="m-tag">${esc(nb)}</tspan>${rest.length ? ' ' + esc(rest.join(' ')) : ''}</text>`;
+      return `<text x="${f1(sp[0])}" y="${f1(sp[1])}" class="m-label" text-anchor="${sp[2]}">${esc(name)}</text>`;
     }
     if (cute || sel == null || !on(i)) return '';
     const name = shortName(c.placeName), w = name.length * 10.5 + 4;
@@ -184,9 +195,9 @@ function svgAdult(pts, info, style, W, H, seed, view = {}) {
   const sc = cute ? 1.2 : 1;
   const mk = i => {
     const c = pts[i], [x, y] = xy[i], faded = !on(i);
-    const n = view.tags ? null : view.video || (sel != null && !faded) ? info.num(c) : null;
-    const ph = view.photos && view.photos[c.id];
-    return `<g class="pick${faded ? ' faded' : ''}" data-id="${c.id}">${markerSVG(x, y, c, n, ph ? 1.25 : sc, !faded && cute && !view.tags ? 'bob' : '', ph)}${labels[i]}</g>`;
+    if (view.tags) return `<g class="pick" data-id="${c.id}">${markerSVG(x, y, c, view.order ? view.order[c.id] : info.num(c), 1.15, '', null, 'center')}${labels[i]}</g>`;
+    const n = view.video || (sel != null && !faded) ? info.num(c) : null;
+    return `<g class="pick${faded ? ' faded' : ''}" data-id="${c.id}">${markerSVG(x, y, c, n, sc, !faded && cute ? 'bob' : '')}${labels[i]}</g>`;
   };
   const faded = pts.map((_, i) => (on(i) ? '' : mk(i))).join(''), active = pts.map((_, i) => (on(i) ? mk(i) : '')).join('');
   // 「全部」：每天的區域旁標「第 N 天」
@@ -448,3 +459,6 @@ export function adultLayout(checkins, style, W, H) {
   const info = dayInfo(checkins);
   return { pts, xy, dayOf: info.dayOf, num: info.num, days: info.days };
 }
+
+// 明信片清單用：花心有號碼的標記圖
+export const markerNumSVG = (c, n) => `<svg viewBox="-24 -24 48 48">${markerSVG(0, 0, c, n, 1.35, '', null, 'center')}</svg>`;
