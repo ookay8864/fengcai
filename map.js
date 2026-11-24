@@ -9,6 +9,7 @@ import { CONFIG, getSetting } from './config.js';
 import { loadAMap, wgs2gcj } from './geo.js';
 import { esc, dayKey } from './ui.js';
 import { ITEMS } from './themes.js';
+import { isKid, isAdult } from './store.js';
 
 const f1 = n => (Math.round(n * 10) / 10).toString();
 const shortName = s => { const t = String(s || '').replace(/（模擬）/g, ''); return t.length > 8 ? t.slice(0, 7) + '…' : t; };
@@ -60,16 +61,41 @@ function smooth(xy) {
   return d;
 }
 
-// ---------- 小花 ----------
-export function flower(x, y, color, n, r = 12, cls = '') {
+// ---------- 打卡標記：花＝大人、蜜蜂＝孩子、蜜蜂採花＝一起 ----------
+// 之後換風格：改這一段的圖形；顏色在 theme.css 的 --mk-* 變數
+const BEE = `<g class="bee-g"><ellipse cx="-6" cy="-7" rx="7" ry="4.5" transform="rotate(-25 -6 -7)" class="bee-w"/><ellipse cx="6" cy="-7" rx="7" ry="4.5" transform="rotate(25 6 -7)" class="bee-w"/><ellipse cx="0" cy="0" rx="8" ry="9.5" class="bee-b"/><path d="M-7.5 -2h15M-7.5 3h15" class="bee-s"/><circle cx="0" cy="-10" r="4.5" class="bee-h"/></g>`;
+function flowerShape(x, y, r) {
   const petals = Array.from({ length: 5 }, (_, i) => {
     const a = (i * 72 - 90) * Math.PI / 180;
-    return `<circle cx="${f1(x + Math.cos(a) * r * .72)}" cy="${f1(y + Math.sin(a) * r * .72)}" r="${f1(r * .56)}" style="fill:${color}"/>`;
+    return `<circle cx="${f1(x + Math.cos(a) * r * .72)}" cy="${f1(y + Math.sin(a) * r * .72)}" r="${f1(r * .56)}" class="mk-petal"/>`;
   }).join('');
-  return `<g class="fl ${cls}" style="transform-origin:${f1(x)}px ${f1(y)}px">${petals}<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(r * .52)}" class="fl-c"/><text x="${f1(x)}" y="${f1(y + r * .22)}" class="fl-n" style="font-size:${f1(r * .62)}px">${n}</text></g>`;
+  return `${petals}<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(r * .5)}" class="mk-center"/><circle cx="${f1(x - r * .15)}" cy="${f1(y - r * .15)}" r="${f1(r * .14)}" class="mk-hi"/>`;
 }
-const BEE = `<g class="bee-g"><ellipse cx="-6" cy="-7" rx="7" ry="4.5" transform="rotate(-25 -6 -7)" class="bee-w"/><ellipse cx="6" cy="-7" rx="7" ry="4.5" transform="rotate(25 6 -7)" class="bee-w"/><ellipse cx="0" cy="0" rx="8" ry="9.5" class="bee-b"/><path d="M-7.5 -2h15M-7.5 3h15" class="bee-s"/><circle cx="0" cy="-10" r="4.5" class="bee-h"/></g>`;
-const dayColor = d => `var(--day-${d % 5 + 1})`;
+export function markerSVG(x, y, c, num, s = 1, cls = '') {
+  const kid = isKid(c), adult = isAdult(c);
+  let g = '';
+  if (adult) g += flowerShape(x, y, 12 * s);
+  if (kid && !adult) g += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(14 * s)}" class="mk-kidbg"/><g transform="translate(${f1(x)} ${f1(y + 2 * s)}) scale(${f1(1.05 * s)})">${BEE}</g>`;
+  if (kid && adult) g += `<g transform="translate(${f1(x + 3 * s)} ${f1(y - 6 * s)}) scale(${f1(.8 * s)})">${BEE}</g>`;
+  if (num != null) g += `<circle cx="${f1(x + 11 * s)}" cy="${f1(y + 11 * s)}" r="${f1(6.8 * s)}" class="mk-badge"/><text x="${f1(x + 11 * s)}" y="${f1(y + 11 * s)}" dy=".36em" class="mk-num" style="font-size:${f1(8.4 * s)}px">${num}</text>`;
+  return `<g class="mk ${cls}" style="transform-origin:${f1(x)}px ${f1(y)}px">${g}</g>`;
+}
+export const whoText = c => (isKid(c) && isAdult(c) ? '一起' : isKid(c) ? '孩子' : '大人');
+// 舊介面：花園以外的地方曾用過，保留名稱
+export const flower = (x, y, color, n, r = 12, cls = '') => markerSVG(x, y, { kid: false, adult: true }, n, r / 12, cls);
+
+// ---------- 天數：每天從 1 開始編號 ----------
+export function dayInfo(checkins) {
+  const list = [...checkins].sort((a, b) => a.ts - b.ts);
+  const days = [...new Set(list.map(c => dayKey(c.ts)))];
+  const num = new Map();
+  days.forEach(d => list.filter(c => dayKey(c.ts) === d).forEach((c, i) => num.set(c.id, i + 1)));
+  return { days, dayOf: c => Math.max(0, days.indexOf(dayKey(c.ts))), num: c => num.get(c.id) };
+}
+export function defaultDay(info) {
+  const t = info.days.indexOf(dayKey(Date.now()));
+  return t >= 0 ? t : info.days.length - 1;
+}
 
 // ---------- 插畫裝飾 ----------
 function decor(R, W, H, avoid, count, kinds) {
@@ -97,12 +123,16 @@ function scaleBar(s, W, H) {
 }
 
 // ---------- 插畫地圖（大人版：正常／可愛） ----------
-function svgAdult(pts, dayOf, style, connected, W, H, seed) {
+// view: { day: 天的索引或 null（全部）, video: 短片用（全部標號碼、不標天數） }
+function svgAdult(pts, info, style, W, H, seed, view = {}) {
   const id = `m${++seq}`;
   const cute = style === 'cute';
-  const { xy, s } = project(pts, W, H, 42, cute ? 30 : 26);
+  const { xy, s } = project(pts, W, H, 42, cute ? 32 : 28);
   const R = rng(seed);
-  const route = smooth(xy);
+  const sel = view.day == null ? null : view.day;
+  const all = sel == null && !view.video;
+  const on = i => sel == null || info.dayOf(pts[i]) === sel;
+  const route = smooth(xy.filter((_, i) => on(i)));
   const bg = cute
     ? `<defs><linearGradient id="${id}bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--meadow-1)"/><stop offset="1" style="stop-color:var(--meadow-2)"/></linearGradient></defs>
        <rect width="${W}" height="${H}" fill="url(#${id}bg)"/>${decor(R, W, H, xy, 22, ['tree', 'tree', 'bush', 'grass', 'grass', 'dots', 'dots', 'pond', 'hill', 'cloud'])}`
@@ -110,26 +140,42 @@ function svgAdult(pts, dayOf, style, connected, W, H, seed) {
        <rect width="${W}" height="${H}" class="m-bg"/><rect width="${W}" height="${H}" fill="url(#${id}g)"/>
        <g transform="translate(${W - 22} 24)"><path d="M0 -12 L5 4 L0 0 L-5 4 Z" class="m-compass"/><text y="17" class="m-small" text-anchor="middle">北</text></g>${scaleBar(s, W, H)}`;
   const routeSvg = route ? `<mask id="${id}mk"><path d="${route}" class="route-mask" stroke-width="16"/></mask>
-       <path d="${route}" class="${cute ? 'route-cute' : 'route-normal'}" mask="url(#${id}mk)"/>` : '';
-  // 地名標籤：試著放在花的下、上、右、左，放不下就省略（點花可以看）
-  const boxes = xy.map(([x, y]) => [x - 13, y - 13, x + 13, y + 13]);
+       <path d="${route}" class="${cute ? 'route-cute' : 'route-normal'}${all ? ' route-soft' : ''}" mask="url(#${id}mk)"/>` : '';
+  // 地名：只在看某一天時標，放在標記的下、上、右、左，放不下就省略
+  const boxes = xy.filter((_, i) => on(i)).map(([x, y]) => [x - 15, y - 15, x + 19, y + 19]);
   const hit = b => boxes.some(o => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]) || b[0] < 2 || b[2] > W - 2 || b[1] < 2 || b[3] > H - 2;
   const labels = pts.map((c, i) => {
-    if (cute) return '';
+    if (cute || sel == null || !on(i)) return '';
     const [x, y] = xy[i], name = shortName(c.placeName), w = name.length * 10.5 + 4;
-    const spots = [[x, y + 25, 'middle', [x - w / 2, y + 14, x + w / 2, y + 28]], [x, y - 17, 'middle', [x - w / 2, y - 28, x + w / 2, y - 14]], [x + 16, y + 4, 'start', [x + 15, y - 7, x + 15 + w, y + 7]], [x - 16, y + 4, 'end', [x - 15 - w, y - 7, x - 15, y + 7]]];
+    const spots = [[x, y + 29, 'middle', [x - w / 2, y + 19, x + w / 2, y + 32]], [x, y - 20, 'middle', [x - w / 2, y - 31, x + w / 2, y - 17]], [x + 21, y + 4, 'start', [x + 20, y - 7, x + 20 + w, y + 7]], [x - 18, y + 4, 'end', [x - 17 - w, y - 7, x - 17, y + 7]]];
     const sp = spots.find(p => !hit(p[3]));
     if (!sp) return '';
     boxes.push(sp[3]);
     return `<text x="${f1(sp[0])}" y="${f1(sp[1])}" class="m-label" text-anchor="${sp[2]}">${esc(name)}</text>`;
   });
-  const fl = pts.map((c, i) => {
-    const [x, y] = xy[i];
-    const lab = labels[i];
-    return `<g class="pick" data-id="${c.id}">${flower(x, y, dayColor(dayOf(c)), i + 1, cute ? 14 : 11, cute ? 'bob' : '')}${lab}${c.by === 'kid' && cute ? `<circle cx="${f1(x + 11)}" cy="${f1(y - 11)}" r="4" class="kid-dot"/>` : ''}</g>`;
-  }).join('');
+  const sc = cute ? 1.2 : 1;
+  const mk = i => {
+    const c = pts[i], [x, y] = xy[i], faded = !on(i);
+    const n = view.video || (sel != null && !faded) ? info.num(c) : null;
+    return `<g class="pick${faded ? ' faded' : ''}" data-id="${c.id}">${markerSVG(x, y, c, n, sc, !faded && cute ? 'bob' : '')}${labels[i]}</g>`;
+  };
+  const faded = pts.map((_, i) => (on(i) ? '' : mk(i))).join(''), active = pts.map((_, i) => (on(i) ? mk(i) : '')).join('');
+  // 「全部」：每天的區域旁標「第 N 天」
+  const pillBoxes = [];
+  const pills = all ? info.days.map((d, k) => {
+    const idx = pts.map((c, i) => (info.dayOf(c) === k ? i : -1)).filter(i => i >= 0);
+    if (!idx.length) return '';
+    const mx = idx.reduce((a, i) => a + xy[i][0], 0) / idx.length, my = idx.reduce((a, i) => a + xy[i][1], 0) / idx.length;
+    const ys = idx.map(i => xy[i][1]), xs = idx.map(i => xy[i][0]);
+    const cand = [[mx, Math.max(...ys) + 32], [mx, Math.min(...ys) - 32], [Math.max(...xs) + 50, my], [Math.min(...xs) - 50, my]];
+    const free = ([x, y]) => x > 30 && x < W - 30 && y > 12 && y < H - 12 && xy.every(([px, py]) => Math.abs(px - x) > 44 || Math.abs(py - y) > 26) && pillBoxes.every(([qx, qy]) => Math.abs(qx - x) > 60 || Math.abs(qy - y) > 22);
+    let [cx, cy] = cand.find(free) || cand[0];
+    cx = Math.min(W - 32, Math.max(32, cx)); cy = Math.min(H - 12, Math.max(12, cy));
+    pillBoxes.push([cx, cy]);
+    return `<g class="daypill" data-day="${k}"><rect x="${f1(cx - 28)}" y="${f1(cy - 10)}" width="56" height="20" rx="10" class="m-daypill"/><text x="${f1(cx)}" y="${f1(cy)}" dy=".35em" text-anchor="middle" class="m-daytext">第 ${k + 1} 天</text></g>`;
+  }).join('') : '';
   return `<svg viewBox="0 0 ${W} ${H}" class="mapsvg ${cute ? 'cute' : 'normal'}" role="img" aria-label="採蜜地圖，共 ${pts.length} 個地點">
-    ${bg}<g class="rt">${routeSvg}</g>${fl}<g class="bee" transform="translate(-50 -50)">${BEE}</g></svg>`;
+    ${bg}<g class="rt">${routeSvg}</g>${faded}${pills}${active}<g class="bee" transform="translate(-50 -50)">${BEE}</g></svg>`;
 }
 
 // 連起來：路線慢慢畫出來，蜜蜂沿路飛
@@ -138,7 +184,7 @@ function animateRoute(svg, done) {
   if (!vis || !mk) return null;
   const L = vis.getTotalLength();
   mk.style.strokeDasharray = `${L} ${L}`;
-  const n = svg.querySelectorAll('.pick').length;
+  const n = svg.querySelectorAll('.pick:not(.faded)').length;
   const dur = Math.min(7000, 1200 + n * 450);
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   let t0 = null, raf = 0;
@@ -169,23 +215,30 @@ function hideRoute(svg) {
 }
 
 // ---------- 真實地圖（高德） ----------
-function amapFlower(c, i, d, style) {
-  const cute = style === 'cute', r = cute ? 15 : 12, sz = r * 2 + 8;
-  return `<div class="amk ${cute ? 'cute' : ''}"><svg viewBox="${-sz / 2} ${-sz / 2} ${sz} ${sz}" width="${sz}" height="${sz}">${flower(0, 0, dayColor(d), i + 1, r, cute ? 'bob' : '')}</svg>${cute ? '' : `<span>${esc(shortName(c.placeName))}</span>`}</div>`;
+function amapMarker(c, num, faded, style, label) {
+  const cute = style === 'cute', sc = cute ? 1.3 : 1.1, sz = Math.round(44 * sc);
+  return `<div class="amk${faded ? ' faded' : ''}"><svg viewBox="${-sz / 2} ${-sz / 2} ${sz} ${sz}" width="${sz}" height="${sz}">${markerSVG(0, 0, c, num, sc, !faded && cute ? 'bob' : '')}</svg>${label ? `<span>${esc(shortName(c.placeName))}</span>` : ''}</div>`;
 }
-async function mountAMap(el, pts, dayOf, opt) {
+async function mountAMap(el, pts, info, opt) {
   const AM = await loadAMap();
   if (!AM || !AM.Map) throw new Error('no amap');
   el.innerHTML = '<div class="amap-box"></div>';
   const box = el.firstChild;
   const pos = pts.map(c => wgs2gcj(c.lng, c.lat));
   const map = new AM.Map(box, { mapStyle: CONFIG.mapStyles[opt.style] || CONFIG.mapStyles.normal, zoom: 13, center: pos[0] || [114.0579, 22.5431], resizeEnable: true });
+  const on = i => opt.day == null || info.dayOf(pts[i]) === opt.day;
   const markers = pts.map((c, i) => {
-    const m = new AM.Marker({ position: pos[i], content: amapFlower(c, i, dayOf(c), opt.style), anchor: 'center', zIndex: 120 + i });
+    const m = new AM.Marker({ position: pos[i], anchor: 'center', zIndex: 120 + i });
     m.on('click', () => opt.onPick && opt.onPick(c));
     return m;
   });
-  if (markers.length) { map.add(markers); map.setFitView(markers, false, [70, 60, 60, 60], 16); }
+  const paint = () => markers.forEach((m, i) => {
+    const sel = opt.day != null && on(i);
+    m.setContent(amapMarker(pts[i], sel ? info.num(pts[i]) : null, !on(i), opt.style, sel && opt.style !== 'cute'));
+    m.setzIndex(on(i) ? 200 + i : 100 + i);
+  });
+  const fit = () => { const ms = markers.filter((_, i) => on(i)); if (ms.length) map.setFitView(ms, false, [70, 60, 60, 60], 16); };
+  if (markers.length) { map.add(markers); paint(); fit(); }
   let line = null, bee = null, raf = 0;
   const clearRoute = () => { cancelAnimationFrame(raf); if (line) map.remove(line); if (bee) map.remove(bee); line = bee = null; };
   const routeColor = () => (opt.style === 'cute' ? '#FF6F91' : '#D98A00');
@@ -193,13 +246,14 @@ async function mountAMap(el, pts, dayOf, opt) {
     kind: 'amap',
     connect(instant = false) {
       clearRoute();
-      if (pos.length < 2) return;
-      line = new AM.Polyline({ path: [pos[0]], strokeColor: routeColor(), strokeWeight: 6, strokeOpacity: .95, strokeStyle: 'dashed', strokeDasharray: [12, 9], lineJoin: 'round', lineCap: 'round', zIndex: 60 });
-      bee = new AM.Marker({ position: pos[0], content: `<svg viewBox="-16 -18 32 32" width="34" height="34" class="amap-bee">${BEE}</svg>`, anchor: 'center', zIndex: 300 });
+      const P = pos.filter((_, i) => on(i));
+      if (P.length < 2) return;
+      line = new AM.Polyline({ path: [P[0]], strokeColor: routeColor(), strokeWeight: 6, strokeOpacity: .95, strokeStyle: 'dashed', strokeDasharray: [12, 9], lineJoin: 'round', lineCap: 'round', zIndex: 60 });
+      bee = new AM.Marker({ position: P[0], content: `<svg viewBox="-16 -18 32 32" width="34" height="34" class="amap-bee">${BEE}</svg>`, anchor: 'center', zIndex: 400 });
       map.add([line, bee]);
-      const seg = pos.slice(1).map((p, i) => Math.hypot(p[0] - pos[i][0], p[1] - pos[i][1]));
+      const seg = P.slice(1).map((p, i) => Math.hypot(p[0] - P[i][0], p[1] - P[i][1]));
       const total = seg.reduce((a, b) => a + b, 0) || 1;
-      const dur = instant ? 0 : Math.min(7000, 1200 + pos.length * 450);
+      const dur = instant ? 0 : Math.min(7000, 1200 + P.length * 450);
       let t0 = null;
       const step = ts => {
         if (t0 == null) t0 = ts;
@@ -207,59 +261,54 @@ async function mountAMap(el, pts, dayOf, opt) {
         let d = total * t, i = 0;
         while (i < seg.length - 1 && d > seg[i]) { d -= seg[i]; i++; }
         const r = seg[i] ? Math.min(1, d / seg[i]) : 1;
-        const p = [pos[i][0] + (pos[i + 1][0] - pos[i][0]) * r, pos[i][1] + (pos[i + 1][1] - pos[i][1]) * r];
-        line.setPath(pos.slice(0, i + 1).concat([p]));
+        const p = [P[i][0] + (P[i + 1][0] - P[i][0]) * r, P[i][1] + (P[i + 1][1] - P[i][1]) * r];
+        line.setPath(P.slice(0, i + 1).concat([p]));
         bee.setPosition(p);
         if (t < 1) raf = requestAnimationFrame(step);
       };
       raf = requestAnimationFrame(step);
     },
     hideRoute: clearRoute,
-    setStyle(s) {
-      opt.style = s;
-      map.setMapStyle(CONFIG.mapStyles[s] || CONFIG.mapStyles.normal);
-      markers.forEach((m, i) => m.setContent(amapFlower(pts[i], i, dayOf(pts[i]), s)));
-      if (line) line.setOptions({ strokeColor: routeColor() });
-    },
+    setStyle(s) { opt.style = s; map.setMapStyle(CONFIG.mapStyles[s] || CONFIG.mapStyles.normal); paint(); if (line) line.setOptions({ strokeColor: routeColor() }); },
+    setDay(d) { opt.day = d; clearRoute(); paint(); fit(); },
     destroy() { clearRoute(); try { map.destroy(); } catch (e) {} }
   };
   return ctl;
 }
 
 // ---------- 對外：放一張地圖 ----------
-// opt: { style:'normal'|'cute', onPick(c), connected:boolean, height }
+// opt: { style:'normal'|'cute', day: 天的索引或 null（全部）, onPick(c), height, seed }
 export async function mountMap(el, checkins, opt = {}) {
   const pts = checkins.filter(c => c.lat != null);
-  const days = [...new Set(checkins.map(c => dayKey(c.ts)))];
-  const dayOf = c => Math.max(0, days.indexOf(dayKey(c.ts)));
+  const info = dayInfo(checkins);
   opt.style = opt.style || 'normal';
   el.classList.add('mapwrap');
   if (opt.height) el.style.height = opt.height + 'px';
+  const none = { kind: 'none', info, connect() {}, hideRoute() {}, setStyle() {}, setDay(d) { opt.day = d; }, destroy() {} };
 
   if (getSetting('amapKey') && pts.length) {
-    try { const ctl = await mountAMap(el, pts, dayOf, opt); if (opt.connected) ctl.connect(true); return ctl; } catch (e) { console.warn('高德地圖無法載入，改用插畫地圖', e); }
+    try { const ctl = await mountAMap(el, pts, info, opt); ctl.info = info; return ctl; } catch (e) { console.warn('高德地圖無法載入，改用插畫地圖', e); }
   }
+  if (!pts.length) { el.innerHTML = '<p class="map-empty">打卡之後，這裡會開出第一朵花</p>'; return none; }
 
-  if (!pts.length) {
-    el.innerHTML = '<p class="map-empty">打卡之後，這裡會開出第一朵花</p>';
-    return { kind: 'none', connect() {}, hideRoute() {}, setStyle() {}, destroy() {} };
-  }
-  let stop = null, connected = !!opt.connected;
+  let stop = null, connected = false;
   const W = 360, H = opt.height ? Math.round(360 * opt.height / Math.max(300, el.clientWidth || 360)) : 280;
   const draw = () => {
     if (stop) stop();
-    el.innerHTML = svgAdult(pts, dayOf, opt.style, connected, W, Math.max(240, Math.min(H, 520)), opt.seed || 'fengcai');
+    el.innerHTML = svgAdult(pts, info, opt.style, W, Math.max(240, Math.min(H, 520)), opt.seed || 'fengcai', { day: opt.day });
     const svg = el.querySelector('svg');
     if (connected) showRouteDone(svg); else hideRoute(svg);
     svg.querySelectorAll('.pick').forEach(g => g.addEventListener('click', () => { const c = pts.find(p => p.id === g.dataset.id); if (c && opt.onPick) opt.onPick(c); }));
+    svg.querySelectorAll('.daypill').forEach(g => g.addEventListener('click', () => opt.onPickDay && opt.onPickDay(+g.dataset.day)));
     return svg;
   };
   let svg = draw();
   return {
-    kind: 'svg',
+    kind: 'svg', info,
     connect() { connected = true; svg = draw(); hideRoute(svg); stop = animateRoute(svg); },
     hideRoute() { connected = false; svg = draw(); },
     setStyle(s) { opt.style = s; svg = draw(); },
+    setDay(d) { opt.day = d; connected = false; svg = draw(); },
     destroy() { if (stop) stop(); }
   };
 }
@@ -303,25 +352,33 @@ export function gardenSVG(stamps, themeOf, seed, newestId, size = {}) {
   }).join('');
   const fogClouds = decor(rng((seed || '') + 'fog'), W, H, [], Math.round(W * H / 10000), ['cloud']);
   const route = smooth(xy);
-  const fl = pts.map((c, i) => { const [x, y] = xy[i]; const isNew = c.id === newestId; return `<g class="pick" data-id="${c.id}">${flower(x, y, `var(--day-${i % 5 + 1})`, i + 1, 17, isNew ? 'grow' : 'bob')}</g>`; }).join('');
+  const gi = dayInfo(pts);
+  const fl = pts.map((c, i) => { const [x, y] = xy[i]; const isNew = c.id === newestId; return `<g class="pick" data-id="${c.id}">${markerSVG(x, y, c, gi.num(c), 1.45, isNew ? 'grow' : 'bob')}</g>`; }).join('');
+  // 每天第一站旁邊標「第 N 天」
+  const gpills = gi.days.length > 1 ? gi.days.map((d, k) => {
+    const i = pts.findIndex(c => gi.dayOf(c) === k);
+    if (i < 0) return '';
+    const [x, y] = xy[i];
+    const cx = Math.min(W - 34, Math.max(34, x)), cy = y + 40 > H - 12 ? y - 40 : y + 40;
+    return `<g><rect x="${f1(cx - 30)}" y="${f1(cy - 11)}" width="60" height="22" rx="11" class="m-daypill"/><text x="${f1(cx)}" y="${f1(cy)}" dy=".35em" text-anchor="middle" class="m-daytext">第 ${k + 1} 天</text></g>`;
+  }).join('') : '';
   const last = xy[xy.length - 1];
   return `<svg viewBox="0 0 ${W} ${H}" class="garden" role="img" aria-label="花園地圖，已點亮 ${pts.length} 朵花">
     <defs>${grads}<pattern id="${id}dot" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1.3" class="g-fogdot"/></pattern></defs>
     <rect width="${W}" height="${H}" rx="24" class="g-fog"/><rect width="${W}" height="${H}" rx="24" fill="url(#${id}dot)"/>${fogClouds}
     ${patches}${things}
     ${route ? `<path d="${route}" class="g-route"/>` : ''}
-    ${fl}
-    ${last ? `<g transform="translate(${f1(last[0] + 20)} ${f1(last[1] - 26)})"><g class="bee-bob">${BEE}</g></g>` : ''}
+    ${gpills}${fl}
   </svg>`;
 }
 
 // ---------- 匯出用：把地圖變成圖片（明信片、短片會用到） ----------
-export function adultMapSVG(checkins, style, W, H, seed) {
+export function adultMapSVG(checkins, style, W, H, seed, view = {}) {
   const pts = checkins.filter(c => c.lat != null);
-  const days = [...new Set(checkins.map(c => dayKey(c.ts)))];
-  const dayOf = c => Math.max(0, days.indexOf(dayKey(c.ts)));
-  return pts.length ? svgAdult(pts, dayOf, style, true, W, H, seed || 'fengcai') : '';
+  return pts.length ? svgAdult(pts, dayInfo(checkins), style, W, H, seed || 'fengcai', view) : '';
 }
+// 單一標記的圖（短片裡用）
+export const markerOnlySVG = (c, s = 1) => `<svg viewBox="-24 -24 48 48">${markerSVG(0, 0, c, null, s)}</svg>`;
 export function finishRoute(svg) { showRouteDone(svg); }
 
 const PROPS = ['fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-dasharray', 'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'opacity', 'font-family', 'font-size', 'font-weight', 'text-anchor', 'paint-order', 'stop-color', 'stop-opacity'];
@@ -358,7 +415,7 @@ export async function svgToImage(svgStr, W, H, scale = 3, prepare) {
 // 短片用：取得每朵花在插畫地圖上的位置（和 adultMapSVG 一致）
 export function adultLayout(checkins, style, W, H) {
   const pts = checkins.filter(c => c.lat != null);
-  const { xy } = project(pts, W, H, 42, style === 'cute' ? 30 : 26);
-  const days = [...new Set(checkins.map(c => dayKey(c.ts)))];
-  return { pts, xy, dayOf: c => Math.max(0, days.indexOf(dayKey(c.ts))) };
+  const { xy } = project(pts, W, H, 42, style === 'cute' ? 32 : 28);
+  const info = dayInfo(checkins);
+  return { pts, xy, dayOf: info.dayOf, num: info.num, days: info.days };
 }

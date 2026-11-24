@@ -1,7 +1,7 @@
 // 蜂采 兒童頁面：小小打卡官
 import { CONFIG } from './config.js';
-import { store, ensureActiveTrip, askPersist } from './store.js';
-import { getPosition, nearby, badgeOf, BADGES, isDemo } from './geo.js';
+import { store, ensureActiveTrip, askPersist, isKid, findMergeTarget } from './store.js';
+import { getPosition, nearby, badgeOf, BADGES, isDemo, distM } from './geo.js';
 import { startRecorder } from './media.js';
 import { $, esc, uid, icon, fmtDate, dayKey } from './ui.js';
 import { allThemes, getTheme, guessTheme, themeIcon } from './themes.js';
@@ -40,7 +40,7 @@ async function stopRec() {
 async function idle() {
   await stopRec();
   const t = await ensureActiveTrip();
-  const n = (await store.listCheckins(t.id)).filter(c => c.by === 'kid').length;
+  const n = (await store.listCheckins(t.id)).filter(isKid).length;
   k.innerHTML = `<header class="ktop"><img src="./logo.svg" class="klogo" alt=""><span class="kname">小小打卡官</span><button class="kbook" id="gd">${icon('flower')}花園</button><button class="kbook" id="book">${icon('honey')}章本 <b>${n}</b></button></header>
     <section class="kcenter">
       <button class="kstamp" id="stamp">${icon('bee', 'huge')}<span>按我蓋章！</span></button>
@@ -62,10 +62,10 @@ async function go() {
   try { list = await nearby(pos.lat, pos.lng); } catch (e) {}
   list.sort((a, b) => (a.dist || 0) - (b.dist || 0));
   const trip = await ensureActiveTrip();
-  const kids = (await store.listCheckins(trip.id)).filter(c => c.by === 'kid');
+  const kids = (await store.listCheckins(trip.id)).filter(isKid);
   const p = list[0] || { name: `神秘地點 ${kids.length + 1} 號`, type: '', id: '' };
   const last = kids[kids.length - 1];
-  if (last && last.placeName === p.name && Date.now() - last.ts < 15 * 60e3) return already(pos, p, trip, kids.length);
+  if (last && Date.now() - (last.kidTs || last.ts) < 15 * 60e3 && (last.placeName === p.name || (last.lat != null && distM(pos, last) < 60))) return already(pos, p, trip, kids.length);
   save(pos, p, trip, kids.length + 1);
 }
 
@@ -92,7 +92,15 @@ async function ensureDayTheme(trip, p) {
 
 async function save(pos, p, trip, n) {
   await ensureDayTheme(trip, p);
-  const c = { id: uid(), tripId: trip.id, ts: Date.now(), lat: pos.lat, lng: pos.lng, acc: pos.acc, placeName: p.name, placeType: p.type || '', poiId: p.id || '', by: 'kid', confirmed: false, note: '' };
+  // 大人剛在這裡打過卡：把章蓋在同一站（用大人選好的地點名稱）
+  const merge = await findMergeTarget(trip.id, p, pos, 'kid');
+  if (merge) {
+    Object.assign(merge, { kid: true, adult: true, kidTs: Date.now() });
+    await store.saveCheckin(merge);
+    askPersist();
+    return result(merge, n);
+  }
+  const c = { id: uid(), tripId: trip.id, ts: Date.now(), lat: pos.lat, lng: pos.lng, acc: pos.acc, placeName: p.name, placeType: p.type || '', poiId: p.id || '', by: 'kid', kid: true, adult: false, confirmed: false, note: '' };
   await store.saveCheckin(c);
   askPersist();
   result(c, n);
@@ -163,7 +171,7 @@ function lost(msg) {
 async function book() {
   await stopRec();
   const t = await ensureActiveTrip();
-  const kids = (await store.listCheckins(t.id)).filter(c => c.by === 'kid');
+  const kids = (await store.listCheckins(t.id)).filter(isKid);
   const count = {};
   kids.forEach(c => { const b = badgeOf(c.placeType); count[b] = (count[b] || 0) + 1; });
   const blanks = Math.max(0, (Math.ceil((kids.length + 1) / 3) * 3) - kids.length);
@@ -181,7 +189,7 @@ async function book() {
 async function garden(newestId) {
   await stopRec();
   const t = await ensureActiveTrip();
-  const kids = (await store.listCheckins(t.id)).filter(c => c.by === 'kid');
+  const kids = (await store.listCheckins(t.id)).filter(isKid);
   const n = kids.length, goal = CONFIG.kidGardenGoal;
   const next = Math.max(goal, Math.ceil((n + (n % goal === 0 && n ? 0 : 0)) / goal) * goal || goal);
   const left = next - n;

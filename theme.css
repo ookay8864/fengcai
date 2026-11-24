@@ -32,6 +32,12 @@
   --map-bg:#FFFDF6;
   --map-grid:#F1E6CC;
   --route-normal:#D98A00;
+  /* 打卡標記：花＝大人、蜜蜂＝孩子、蜜蜂採花＝一起 */
+  --mk-flower:#F7B500;
+  --mk-center:#E07B00;
+  --mk-center-hi:#FFD66B;
+  --mk-kid-bg:#FFE3EC;
+  --mk-badge:#FFFFFF;
   /* 地圖：可愛版與兒童花園 */
   --meadow-1:#FFF1B8;
   --meadow-2:#CDEFB0;

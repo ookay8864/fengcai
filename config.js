@@ -3,7 +3,7 @@
 // 之後換成雲端儲存、換地圖服務、調整上限，主要改這裡。
 // ==========================================================
 export const CONFIG = {
-  version: '0.4.0',
+  version: '0.5.0',
   storage: 'local',      // 'local'＝存在手機本機；之後做好雲端改成 'cloud'
   map: 'amap',           // 地點搜尋服務：目前是高德；國外版之後可加其他服務
   nearbyRadius: 400,     // 搜尋附近地點的範圍（公尺）
@@ -20,6 +20,7 @@ export const CONFIG = {
     width: 1080, height: 1920, fps: 30,
     introSec: 2.8,       // 片頭
     overviewSec: 1.6,    // 整張地圖
+    daySec: 1.8,         // 換天的過場（第 N 天）
     flySec: 1.3,         // 蜜蜂飛到下一站
     photoSec: 1.9,       // 每張照片
     clipSec: 4,          // 影片片段最長秒數

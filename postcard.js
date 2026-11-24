@@ -3,7 +3,7 @@
 // 輸出 1080×1350（4:5）圖片，兩種版型：地圖為主、照片為主
 // 版面的顏色來自 theme.css（一律用淺色）
 // ==========================================================
-import { store } from './store.js';
+import { store, isKid } from './store.js';
 import { adultMapSVG, svgToImage, finishRoute } from './map.js';
 import { dayKey, fmtDate } from './ui.js';
 
@@ -111,7 +111,7 @@ export function dateRange(cs) {
   return dayKey(a) === dayKey(b) ? fmtDate(a) : `${fmtDate(a).replace(/ 週.$/, '')} – ${fmtDate(b).replace(/ 週.$/, '')}`;
 }
 export function statsLine(data) {
-  const kid = data.cs.filter(c => c.by === 'kid').length;
+  const kid = data.cs.filter(isKid).length;
   return `${data.cs.length} 個地點 · ${data.days.length} 天${kid ? ` · 孩子蓋了 ${kid} 個章` : ''}`;
 }
 

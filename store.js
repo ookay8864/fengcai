@@ -6,6 +6,7 @@
 // ==========================================================
 import { CONFIG } from './config.js';
 import { uid } from './ui.js';
+import { distM } from './geo.js';
 
 const DB_NAME = 'fengcai-v1';
 let dbp = null;
@@ -77,6 +78,21 @@ export const store = CONFIG.storage === 'cloud' && CloudStore ? CloudStore : Loc
 export async function askPersist() {
   try { if (navigator.storage?.persist) return await navigator.storage.persist(); } catch (e) {}
   return false;
+}
+
+// ---------- 大人和孩子的打卡合成一站 ----------
+// 一筆打卡可能同時有孩子的章（kid）和大人的記錄（adult）；舊資料用 by 判斷
+export const isKid = c => (c.kid != null ? c.kid : c.by === 'kid');
+export const isAdult = c => (c.adult != null ? c.adult : c.by !== 'kid');
+export const MERGE = { minutes: 30, meters: 60 };
+// 找出可以合併的那一站：30 分鐘內、同一個地點名稱或 60 公尺內、而且還沒有「這個人」的記錄
+export async function findMergeTarget(tripId, place, pos, who) {
+  const now = Date.now();
+  const cs = await store.listCheckins(tripId);
+  return cs.filter(c => Math.abs(now - c.ts) < MERGE.minutes * 60e3
+    && (who === 'kid' ? !isKid(c) : !isAdult(c))
+    && (c.placeName === place.name || (pos && pos.lat != null && c.lat != null && distM(pos, c) < MERGE.meters)))
+    .sort((a, b) => b.ts - a.ts)[0] || null;
 }
 
 // 目前旅程

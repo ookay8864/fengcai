@@ -5,8 +5,8 @@
 // 秒數等設定在 config.js 的 CONFIG.video；顏色來自 theme.css。
 // ==========================================================
 import { CONFIG } from './config.js';
-import { store } from './store.js';
-import { adultMapSVG, adultLayout, svgToImage } from './map.js';
+import { store, isKid, isAdult } from './store.js';
+import { adultMapSVG, adultLayout, svgToImage, markerOnlySVG } from './map.js';
 import { renderPostcard, dateRange, statsLine, palette, rr, wrap, FONT } from './postcard.js';
 import { renderMusic } from './music.js';
 import { fmtDate, dayKey } from './ui.js';
@@ -118,11 +118,15 @@ export async function makeVideo(data, opt, ui) {
   const P = palette();
   const ac = opt.ac;
   ui.onStatus('準備地圖…');
-  const svg = adultMapSVG(data.cs, opt.style, MW, MH, data.trip.id);
+  const svg = adultMapSVG(data.cs, opt.style, MW, MH, data.trip.id, { video: true });
   if (!svg) throw new Error('這趟旅程還沒有定位資料，沒辦法做地圖短片');
-  const bgImg = await svgToImage(svg, MW, MH, K, s => s.querySelectorAll('.rt,.pick,.bee').forEach(e => e.remove()));
+  const bgImg = await svgToImage(svg, MW, MH, K, s => s.querySelectorAll('.rt,.pick,.bee,.daypill').forEach(e => e.remove()));
   const flImg = await svgToImage(svg, MW, MH, K, s => [...s.children].forEach(ch => { if (ch.tagName.toLowerCase() !== 'defs' && !ch.classList.contains('pick')) ch.remove(); }));
   const L = adultLayout(data.cs, opt.style, MW, MH);
+  // 三種標記的圖：大人花、孩子蜜蜂、一起採蜜
+  const mkImg = {};
+  for (const [k, c] of [['a', { adult: true, kid: false }], ['k', { adult: false, kid: true }], ['b', { adult: true, kid: true }]]) mkImg[k] = await svgToImage(markerOnlySVG(c), 48, 48, 8).catch(() => null);
+  const mkOf = c => mkImg[isKid(c) && isAdult(c) ? 'b' : isKid(c) ? 'k' : 'a'];
   L.segs = segments(L.xy);
   const days = [...new Set(data.cs.map(c => dayKey(c.ts)))];
   const logo = await loadImg('./logo.svg').catch(() => null);
@@ -157,6 +161,8 @@ export async function makeVideo(data, opt, ui) {
     push({ type: 'intro', d: V.introSec });
     push({ type: 'overview', d: V.overviewSec });
     stops.forEach((st, i) => {
+      const dk = L.dayOf(st.c);
+      if (L.days.length > 1 && (i === 0 || L.dayOf(stops[i - 1].c) !== dk)) push({ type: 'day', k: dk, c: st.c, d: V.daySec || 1.6 });
       push({ type: 'fly', i, d: i === 0 ? 1.1 : V.flySec });
       const items = st.all.slice(0, perStop).map(it => ({ ...it, dur: it.kind === 'video' ? Math.min(it.dur, clipMax) : it.dur }));
       const vd = st.voice ? Math.min(st.voice.buf.duration, voiceMax) : 0;
@@ -193,7 +199,6 @@ export async function makeVideo(data, opt, ui) {
   const cv = ui.canvas; cv.width = CW; cv.height = CH;
   const ctx = cv.getContext('2d');
   const title = (opt.title || data.trip.name || '').trim();
-  const dayColor = c => P.days[L.dayOf(c) % 5];
   const playing = new Set();
 
   function drawMap(cam, prog, bee, t, flip = 1) {
@@ -227,7 +232,7 @@ export async function makeVideo(data, opt, ui) {
     ctx.shadowColor = 'rgba(0,0,0,.18)'; ctx.shadowBlur = 20;
     pill(ctx, shortName(c.placeName), CW / 2, CH - 330, `800 52px ${FONT}`, '#fff', P.ink, 40, 104, 'center');
     ctx.shadowBlur = 0;
-    pill(ctx, `第 ${i + 1} 站`, CW / 2, CH - 410, `800 34px ${FONT}`, dayColor(c), '#fff', 24, 60, 'center');
+    pill(ctx, `${L.days.length > 1 ? `第 ${L.dayOf(c) + 1} 天 · ` : ''}第 ${L.num(c)} 站`, CW / 2, CH - 410, `800 34px ${FONT}`, P.deep, '#fff', 24, 60, 'center');
     ctx.restore();
   }
   function drawIntro(lt) {
@@ -270,7 +275,7 @@ export async function makeVideo(data, opt, ui) {
     } else {
       const g = ctx.createLinearGradient(0, 0, 0, CH); g.addColorStop(0, P.soft2 || '#FFE9A8'); g.addColorStop(1, P.honey);
       ctx.fillStyle = g; ctx.fillRect(0, 0, CW, CH); hexBg(ctx, P, .12);
-      drawFlower(ctx, CW / 2, 760, 170, dayColor(c), s.i + 1, P);
+      const im = mkOf(c); if (im) ctx.drawImage(im, CW / 2 - 260, 760 - 260, 520, 520);
       drawBee(ctx, CW / 2 + 190, 560 + Math.sin(lt * 3) * 20, 6, lt, P);
     }
     // 下方文字
@@ -279,14 +284,14 @@ export async function makeVideo(data, opt, ui) {
     ctx.fillStyle = g; ctx.fillRect(0, CH - 820, CW, 820);
     const a = clamp(lt / .5, 0, 1);
     ctx.save(); ctx.globalAlpha = a;
-    drawFlower(ctx, 112, CH - 432, 44, dayColor(c), s.i + 1, P);
+    { const im = mkOf(c); if (im) ctx.drawImage(im, 52, CH - 492, 120, 120); }
     ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = P.honey; ctx.font = `800 40px ${FONT}`;
-    ctx.fillText(`第 ${L.dayOf(c) + 1} 天 · ${fmtDate(c.ts).replace(/ 週.$/, '')}`, 178, CH - 418);
+    ctx.fillText(`${L.days.length > 1 ? `第 ${L.dayOf(c) + 1} 天 · ` : ''}第 ${L.num(c)} 站 · ${fmtDate(c.ts).replace(/ 週.$/, '')}`, 182, CH - 418);
     ctx.fillStyle = '#fff'; ctx.font = `800 84px ${FONT}`;
     let y = CH - 300;
     wrap(ctx, shortName(c.placeName), CW - 140, 2).forEach(l => { ctx.fillText(l, 70, y); y += 100; });
-    if (c.by === 'kid') pill(ctx, '小小打卡官蓋的章', 70, CH - 560, `800 34px ${FONT}`, P.petal, '#fff', 24, 60);
+    if (isKid(c)) pill(ctx, isAdult(c) ? '和小小打卡官一起打卡' : '小小打卡官蓋的章', 70, CH - 560, `800 34px ${FONT}`, P.petal, '#fff', 24, 60);
     if (s.vd && lt > .3 && lt < .3 + s.vd) {
       const lvl = 0.5 + 0.5 * Math.abs(Math.sin(lt * 9));
       ctx.fillStyle = 'rgba(255,255,255,.92)'; rr(ctx, CW - 330, 120, 260, 84, 42); ctx.fill();
@@ -296,6 +301,25 @@ export async function makeVideo(data, opt, ui) {
       for (let k = 0; k < 4; k++) { const h = 14 + 30 * Math.abs(Math.sin(lt * 9 + k * 1.3)) * lvl; rr(ctx, CW - 136 + k * 14, 162 - h / 2, 8, h, 4); ctx.fill(); }
     }
     ctx.restore();
+  }
+  function drawDay(s, lt) {
+    const g = ctx.createLinearGradient(0, 0, 0, CH);
+    g.addColorStop(0, P.soft2 || '#FFE9A8'); g.addColorStop(1, P.honey);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, CW, CH); hexBg(ctx, P, .12);
+    const a = clamp(lt / .4, 0, 1), sc = .85 + .15 * back(clamp(lt / .6, 0, 1));
+    ctx.save(); ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.translate(CW / 2, 880); ctx.scale(sc, sc);
+    ctx.fillStyle = P.ink; ctx.font = `800 170px ${FONT}`; ctx.fillText(`第 ${s.k + 1} 天`, 0, 0);
+    ctx.fillStyle = P.soft; ctx.font = `700 54px ${FONT}`; ctx.fillText(fmtDate(s.c.ts), 0, 100);
+    ctx.restore();
+    const todays = stops.filter(st => L.dayOf(st.c) === s.k).slice(0, 6);
+    const w = 130, x0 = CW / 2 - (todays.length - 1) * w / 2;
+    todays.forEach((st, j) => {
+      const t = clamp((lt - .3 - j * .12) / .3, 0, 1), im = mkOf(st.c);
+      if (im && t > 0) { const z = 110 * back(t); ctx.save(); ctx.globalAlpha = t; ctx.drawImage(im, x0 + j * w - z / 2, 1180 - z / 2, z, z); ctx.restore(); }
+    });
+    ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = P.ink; ctx.textAlign = 'center'; ctx.font = `700 44px ${FONT}`;
+    ctx.fillText(`今天去了 ${stops.filter(st => L.dayOf(st.c) === s.k).length} 個地方`, CW / 2, 1340); ctx.restore();
   }
   function drawOutro(lt) {
     const last = L.xy[L.xy.length - 1], k = ease(clamp(lt / 1.4, 0, 1));
@@ -323,7 +347,7 @@ export async function makeVideo(data, opt, ui) {
     else if (s.type === 'overview') {
       drawMap({ x: MW / 2, y: MH / 2, z: 1 }, 0, null, e);
       ctx.save(); ctx.globalAlpha = clamp(lt / .4, 0, 1);
-      pill(ctx, `${L.pts.length} 朵花，出發！`, CW / 2, 150, `800 52px ${FONT}`, '#fff', P.ink, 44, 104, 'center');
+      pill(ctx, `${L.pts.length} 個地點，出發！`, CW / 2, 150, `800 52px ${FONT}`, '#fff', P.ink, 44, 104, 'center');
       ctx.restore();
     } else if (s.type === 'fly') {
       const k = ease(p);
@@ -343,7 +367,8 @@ export async function makeVideo(data, opt, ui) {
       const q = stopXY(s.i);
       if (lt < .4) drawMap({ x: q[0], y: q[1], z: ZOOM }, s.i, q, e);
       ctx.save(); ctx.globalAlpha = clamp(lt / .4, 0, 1); drawCard(s, lt); ctx.restore();
-    } else if (s.type === 'outro') drawOutro(lt);
+    } else if (s.type === 'day') drawDay(s, lt);
+    else if (s.type === 'outro') drawOutro(lt);
   }
 
   // ---------- 錄製 ----------
@@ -401,7 +426,11 @@ export async function makeVideo(data, opt, ui) {
 // 預估長度（不載入素材，大約值）
 export async function estimate(data, opt) {
   const L = adultLayout(data.cs, opt.style, MW, MH);
-  let t = V.introSec + V.overviewSec + V.outroSec;
+  // 三種標記的圖：大人花、孩子蜜蜂、一起採蜜
+  const mkImg = {};
+  for (const [k, c] of [['a', { adult: true, kid: false }], ['k', { adult: false, kid: true }], ['b', { adult: true, kid: true }]]) mkImg[k] = await svgToImage(markerOnlySVG(c), 48, 48, 8).catch(() => null);
+  const mkOf = c => mkImg[isKid(c) && isAdult(c) ? 'b' : isKid(c) ? 'k' : 'a'];
+  let t = V.introSec + V.overviewSec + V.outroSec + (L.days.length > 1 ? L.days.length * (V.daySec || 1.6) : 0);
   for (const c of L.pts) {
     const ms = await store.listMedia(c.id);
     const vis = Math.min(3, ms.filter(m => m.kind !== 'audio').length), au = opt.voices && ms.some(m => m.kind === 'audio');

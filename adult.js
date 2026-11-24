@@ -1,9 +1,9 @@
 // 蜂采 大人頁面
 import { CONFIG, getSetting, setSetting } from './config.js';
-import { store, ensureActiveTrip, getActiveId, setActiveId, askPersist } from './store.js';
+import { store, ensureActiveTrip, getActiveId, setActiveId, askPersist, isKid, isAdult, findMergeTarget } from './store.js';
 import { getPosition, nearby, badgeOf, BADGES, shortType, isDemo, amapLink } from './geo.js';
 import { compressImage, videoThumb, startRecorder } from './media.js';
-import { mountMap, gardenSVG } from './map.js';
+import { mountMap, gardenSVG, dayInfo, defaultDay, markerSVG, whoText } from './map.js';
 import { allThemes, getTheme, themeIcon, itemIcon, ITEMS, GROUNDS, listCustom, saveCustom, deleteCustom } from './themes.js';
 import { collect, renderPostcard } from './postcard.js';
 import { makeVideo, estimate, canMakeVideo } from './video.js';
@@ -50,8 +50,8 @@ function cardHTML({ c, m }) {
   const vis = m.filter(x => x.kind !== 'audio'), aud = m.filter(x => x.kind === 'audio');
   const b = BADGES[badgeOf(c.placeType)];
   const tags = [
-    c.by === 'kid' ? '<span class="tag kid">孩子蓋章</span>' : '',
-    c.by === 'kid' && !c.confirmed ? '<span class="tag warn">待確認</span>' : '',
+    isKid(c) ? `<span class="tag kid">${isAdult(c) ? '孩子＋大人' : '孩子蓋章'}</span>` : '',
+    isKid(c) && !c.confirmed ? '<span class="tag warn">待確認</span>' : '',
     !m.length ? '<span class="tag">待補</span>' : ''
   ].join('');
   const th = vis.slice(0, 4).map(x => (x.thumb ? `<img src="${ou(x.thumb)}" alt="">` : `<span class="vph">${icon('play')}</span>`)).join('');
@@ -71,7 +71,7 @@ const topbar = () => `<header class="top"><img src="./logo.svg" class="logo" alt
 async function home() {
   const t = await ensureActiveTrip();
   const meta = await withMedia(await store.listCheckins(t.id));
-  const kidP = meta.filter(x => x.c.by === 'kid' && !x.c.confirmed).length;
+  const kidP = meta.filter(x => isKid(x.c) && !x.c.confirmed).length;
   const empty = meta.filter(x => !x.m.length).length;
   const recent = meta.slice(-5).reverse();
   view.innerHTML = `${topbar()}
@@ -134,9 +134,20 @@ function pickPlace(pos, list) {
     const p = man ? { name: man, type: '', id: '' } : sel ? L[+sel.value] : null;
     if (!p) { toast('請選一個地點，或輸入名稱'); return; }
     const t = await ensureActiveTrip();
-    const dup = (await store.listCheckins(t.id)).find(c => c.placeName === p.name && Date.now() - c.ts < 30 * 60e3);
+    // 孩子剛在這裡蓋過章：合成同一站
+    const merge = await findMergeTarget(t.id, p, pos, 'adult');
+    if (merge) {
+      Object.assign(merge, { kid: true, adult: true, placeName: p.name, placeType: p.type || merge.placeType, poiId: p.id || merge.poiId, confirmed: true });
+      if (pos.lat != null) Object.assign(merge, { lat: pos.lat, lng: pos.lng, acc: pos.acc });
+      await store.saveCheckin(merge);
+      askPersist();
+      toast('孩子剛在這裡蓋過章，已合成同一站');
+      afterCheckin(merge);
+      return;
+    }
+    const dup = (await store.listCheckins(t.id)).find(c => isAdult(c) && c.placeName === p.name && Date.now() - c.ts < 30 * 60e3);
     if (dup && !(await confirmDlg(`30 分鐘內已經在「${p.name}」打過卡了，還要再打一次嗎？`, '再打一次', '不用了'))) { closeSheet(); return; }
-    const c = { id: uid(), tripId: t.id, ts: Date.now(), lat: pos.lat, lng: pos.lng, acc: pos.acc, placeName: p.name, placeType: p.type || '', poiId: p.id || '', by: 'adult', confirmed: true, note: '' };
+    const c = { id: uid(), tripId: t.id, ts: Date.now(), lat: pos.lat, lng: pos.lng, acc: pos.acc, placeName: p.name, placeType: p.type || '', poiId: p.id || '', by: 'adult', adult: true, kid: false, confirmed: true, note: '' };
     await store.saveCheckin(c);
     askPersist();
     afterCheckin(c);
@@ -230,17 +241,42 @@ async function trips() {
 const mapStyle = () => (getSetting('mapStyle') === 'cute' ? 'cute' : 'normal');
 const styleSeg = () => `<div class="seg" role="group" aria-label="地圖樣式"><button data-style="normal" class="${mapStyle() === 'normal' ? 'on' : ''}">正常版</button><button data-style="cute" class="${mapStyle() === 'cute' ? 'on' : ''}">可愛版</button></div>`;
 
-// 把地圖放進 box，並綁好「正常／可愛」切換與「連起來」按鈕
+// 地圖圖例：三種標記
+const mkIcon = (c, size = 34) => `<svg width="${size}" height="${size}" viewBox="-24 -24 48 48" aria-hidden="true">${markerSVG(0, 0, c, null, 1)}</svg>`;
+const mapLegend = () => `<div class="legend mk-legend"><span>${mkIcon({ adult: true, kid: false }, 26)}大人打卡</span><span>${mkIcon({ adult: false, kid: true }, 26)}孩子蓋章</span><span>${mkIcon({ adult: true, kid: true }, 26)}一起打卡</span></div>`;
+
+// 把地圖放進 box，並綁好天數切換、當天清單、「正常／可愛」與「連起來」
 async function attachMap(box, checkins, height, seed) {
-  let connected = false;
-  curMap = await mountMap(box, checkins, { style: mapStyle(), height, seed, onPick: c => { location.hash = `c/${c.id}`; } });
+  const info = dayInfo(checkins);
+  let day = info.days.length ? defaultDay(info) : null, connected = false;
+  const tabs = $('#daytabs'), list = $('#daylist'), conn = $('#conn');
+  const resetConn = () => { connected = false; if (conn) conn.innerHTML = `${icon('flower')}連起來`; };
+  const drawTabs = () => {
+    if (!tabs) return;
+    tabs.innerHTML = info.days.length > 1 || info.days.length === 0 ? `<button data-dd="all" class="${day == null ? 'on' : ''}">全部</button>` : '';
+    tabs.innerHTML += info.days.map((d, k) => { const [, m, dd] = d.split('-'); return `<button data-dd="${k}" class="${day === k ? 'on' : ''}">第 ${k + 1} 天 <small>${m}/${dd}</small></button>`; }).join('');
+    tabs.querySelectorAll('[data-dd]').forEach(b => b.onclick = () => setDay(b.dataset.dd === 'all' ? null : +b.dataset.dd));
+    tabs.querySelector('.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
+  };
+  const drawList = () => {
+    if (!list) return;
+    if (day == null) { list.innerHTML = `<p class="muted sm" style="margin:0">「全部」可以看整趟旅程走過的範圍；點一朵花或「第 N 天」，就會看到那天的順序。</p>`; return; }
+    const cs = checkins.filter(c => info.dayOf(c) === day).sort((a, b) => a.ts - b.ts);
+    list.innerHTML = cs.map(c => `<a class="dl" href="#c/${c.id}"><svg width="40" height="40" viewBox="-24 -24 48 48" aria-hidden="true">${markerSVG(0, 0, c, info.num(c), 1)}</svg><div><b>${esc(c.placeName.replace(/（模擬）/g, ''))}</b><span>${fmtTime(c.ts)} · ${whoText(c)}</span></div></a>`).join('');
+  };
+  const setDay = k => { day = k; resetConn(); curMap && curMap.setDay(k); drawTabs(); drawList(); };
+  curMap = await mountMap(box, checkins, {
+    style: mapStyle(), height, seed, day,
+    onPick: c => { if (day == null) setDay(info.dayOf(c)); else location.hash = `c/${c.id}`; },
+    onPickDay: k => setDay(k)
+  });
   const ctl = curMap;
+  drawTabs(); drawList();
   view.querySelectorAll('[data-style]').forEach(b => b.onclick = () => {
     setSetting('mapStyle', b.dataset.style);
     view.querySelectorAll('[data-style]').forEach(x => x.classList.toggle('on', x === b));
     ctl.setStyle(b.dataset.style);
   });
-  const conn = $('#conn');
   if (conn) {
     if (checkins.filter(c => c.lat != null).length < 2) conn.disabled = true;
     conn.onclick = () => {
@@ -257,12 +293,14 @@ async function mapView(id) {
   const cs = await store.listCheckins(t.id);
   const days = [...new Set(cs.map(c => dayKey(c.ts)))];
   const h = Math.max(320, Math.min(560, window.innerHeight - 330));
-  view.innerHTML = `<div class="row between"><h1 class="h1">採蜜地圖</h1><span class="muted sm">${cs.length} 朵花</span></div>
+  view.innerHTML = `<div class="row between"><h1 class="h1">採蜜地圖</h1><span class="muted sm">${cs.length} 個地點</span></div>
     <button class="chip" id="tripchip" style="margin-top:8px">${icon('trip')}<span><b>${esc(t.name)}</b></span><em>換旅程</em></button>
     <div class="mapbar">${styleSeg()}<button class="btn main sm" id="conn">${icon('flower')}連起來</button></div>
+    <div class="dayseg" id="daytabs"></div>
     <div id="mapbox"></div>
-    ${days.length ? `<div class="legend">${days.map((d, i) => `<span><i style="background:var(--day-${i % 5 + 1})"></i>第 ${i + 1} 天</span>`).join('')}</div>` : ''}
-    <p class="muted sm" style="margin-top:10px">點小花可以看那次打卡。${getSetting('amapKey') ? '' : '目前是插畫地圖；到「設定」填入高德金鑰後，會換成真實的城市地圖。'}</p>`;
+    <div class="daylist" id="daylist"></div>
+    ${mapLegend()}
+    <p class="muted sm" style="margin-top:10px">${getSetting('amapKey') ? '' : '目前是插畫地圖；到「設定」填入高德金鑰後，會換成真實的城市地圖。'}</p>`;
   $('#tripchip').onclick = () => { location.hash = 'trips'; };
   await attachMap($('#mapbox'), cs, h, t.id);
 }
@@ -472,14 +510,16 @@ async function trip(id) {
   const days = [], idx = {};
   meta.forEach((x, i) => { x.n = i + 1; const k = dayKey(x.c.ts); if (!(k in idx)) { idx[k] = days.length; days.push({ k, ts: x.c.ts, items: [] }); } days[idx[k]].items.push(x); });
   const vis = meta.reduce((s, x) => s + x.m.filter(m => m.kind !== 'audio').length, 0);
-  const kid = meta.filter(x => x.c.by === 'kid').length;
+  const kid = meta.filter(x => isKid(x.c)).length;
   view.innerHTML = `<a class="back" href="#trips">${icon('back')}所有旅行包</a>
     <div class="row between"><h1 class="h1">${esc(t.name)}</h1><button class="btn sm" id="ren">改名</button></div>
     <div class="stats"><div><b>${meta.length}</b>地點</div><div><b>${days.length}</b>天</div><div><b>${vis}</b>照片影片</div><div><b>${kid}</b>孩子的章</div></div>
+    <div class="dayseg" id="daytabs"></div>
     <div id="mapbox"></div>
+    <div class="daylist" id="daylist"></div>
     <div class="mapbar">${styleSeg()}<span class="row" style="margin:0"><button class="btn sm" id="conn">${icon('flower')}連起來</button><a class="btn sm" href="#map/${id}">${icon('map')}放大</a></span></div>
-    ${days.length ? `<div class="legend">${days.map((d, i) => `<span><i style="background:var(--day-${i % 5 + 1})"></i>第 ${i + 1} 天</span>`).join('')}</div>` : ''}
-    ${days.map((d, i) => { const th = (t.dayThemes || {})[d.k] ? getTheme(t.dayThemes[d.k]) : null; return `<h2 class="h2 day"><span class="dn" style="background:var(--day-${i % 5 + 1})">第 ${i + 1} 天</span>${fmtDate(d.ts)}<button class="tchip" data-day="${d.k}" aria-label="更改這天的花園主題">${th ? `${themeIcon(th, 22)}${esc(th.name)}` : '選花園主題'}</button></h2><div class="cards">${d.items.map(cardHTML).join('')}</div>`; }).join('') || '<p class="empty" style="margin-top:14px">這趟旅程還沒有打卡。</p>'}
+    ${mapLegend()}
+    ${days.map((d, i) => { const th = (t.dayThemes || {})[d.k] ? getTheme(t.dayThemes[d.k]) : null; return `<h2 class="h2 day"><span class="dn">第 ${i + 1} 天</span>${fmtDate(d.ts)}<button class="tchip" data-day="${d.k}" aria-label="更改這天的花園主題">${th ? `${themeIcon(th, 22)}${esc(th.name)}` : '選花園主題'}</button></h2><div class="cards">${d.items.map(cardHTML).join('')}</div>`; }).join('') || '<p class="empty" style="margin-top:14px">這趟旅程還沒有打卡。</p>'}
     <div class="row"><a class="btn main" href="#video/${id}">${icon('play')}一鍵生成短片</a><a class="btn" href="#card/${id}">${icon('flower')}做足跡明信片</a></div>
     <div class="row">${getActiveId() !== id ? '<button class="btn" id="act">設為目前旅程</button>' : ''}<button class="btn danger" id="del">${icon('trash')}刪除這個旅行包</button></div>`;
   await attachMap($('#mapbox'), meta.map(x => x.c), 260, id);
@@ -508,9 +548,9 @@ async function checkin(id) {
   const m = await store.listMedia(id);
   const vis = m.filter(x => x.kind !== 'audio'), aud = m.filter(x => x.kind === 'audio');
   const b = BADGES[badgeOf(c.placeType)];
-  const pending = c.by === 'kid' && !c.confirmed;
+  const pending = isKid(c) && !c.confirmed;
   view.innerHTML = `<a class="back" href="#trip/${c.tripId}">${icon('back')}${esc(t?.name || '旅行包')}</a>
-    <div class="detail-head"><div class="card-ic lg">${icon(b.icon)}</div><div><h1 class="h1">${esc(c.placeName)}</h1><p class="muted">${fmtDate(c.ts)} ${fmtTime(c.ts)}${c.acc ? ` · 誤差約 ${c.acc} 公尺` : ''}</p></div></div>
+    <div class="detail-head"><div class="card-ic lg">${icon(b.icon)}</div><div><h1 class="h1">${esc(c.placeName)}</h1><p class="muted">${fmtDate(c.ts)} ${fmtTime(c.ts)}${c.acc ? ` · 誤差約 ${c.acc} 公尺` : ''}</p>${isKid(c) && isAdult(c) ? '<span class="tag kid">孩子＋大人一起打卡</span>' : ''}</div></div>
     ${pending ? `<div class="kidbox">${icon('honey')}<div><b>這是孩子蓋的章（${esc(b.name)}）</b><p>系統自動選了最近的地點，請確認是否正確。</p><div class="row"><button class="btn main sm" id="conf">${icon('check')}地點正確</button><button class="btn sm" id="ren">改地點名稱</button></div></div></div>` : ''}
     <div class="row">${pending ? '' : '<button class="btn sm" id="ren">改地點名稱</button>'}${c.lat != null ? `<a class="btn sm" href="${amapLink(c.lat, c.lng, c.placeName)}" target="_blank" rel="noopener">${icon('map')}在高德地圖開啟</a>` : ''}</div>
     <h2 class="h2">照片與影片 <small>${vis.length}/${MAX}</small></h2>
