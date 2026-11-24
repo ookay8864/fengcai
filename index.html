@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#F7B500">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="蜂采">
+<link rel="icon" href="./logo.svg" type="image/svg+xml">
+<title>蜂采</title>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="adult">
+<main id="view" class="wrap"></main>
+<nav class="tabs" id="tabs" aria-label="主要選單">
+  <a href="#" data-t="home"><svg class="ic" aria-hidden="true"><use href="./icons.svg#bee"/></svg>打卡</a>
+  <a href="#map" data-t="map"><svg class="ic" aria-hidden="true"><use href="./icons.svg#map"/></svg>地圖</a>
+  <a href="#trips" data-t="trips"><svg class="ic" aria-hidden="true"><use href="./icons.svg#trip"/></svg>旅行包</a>
+  <a href="#settings" data-t="settings"><svg class="ic" aria-hidden="true"><use href="./icons.svg#gear"/></svg>設定</a>
+</nav>
+<div id="sheet" class="sheet" hidden><div class="sheet-card"><button class="x" id="sheetx" aria-label="關閉">×</button><div id="sheetbody"></div></div></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script type="module" src="adult.js"></script>
+</body>
+</html>

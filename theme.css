@@ -1,0 +1,99 @@
+/* ==========================================================
+   蜂采 主題檔（theme.css）
+   之後要換顏色、字體、圓角、背景花紋，只改這個檔案
+   和 ./ 資料夾裡的圖（logo.svg、icons.svg），
+   不需要動 js/ 裡的任何功能程式。
+   ========================================================== */
+:root{
+  /* 品牌色：蜂蜜、蜂巢、花瓣、葉子 */
+  --honey:#F7B500;
+  --honey-deep:#D98A00;
+  --honey-soft:#FFE9A8;
+  --hive:#2B1B0A;
+  --petal:#FF6F91;
+  --leaf:#3FA76A;
+
+  /* 介面底色與文字 */
+  --bg:#FFF8E7;
+  --card:#FFFFFF;
+  --ink:#2B1B0A;
+  --ink-soft:#7A6247;
+  --line:#F0E0BC;
+  --danger:#D64545;
+
+  /* 足跡地圖：每一天的顏色（第 6 天起循環） */
+  --day-1:#F7B500;
+  --day-2:#FF6F91;
+  --day-3:#3FA76A;
+  --day-4:#4A90E2;
+  --day-5:#9B6BDF;
+
+  /* 地圖：正常版 */
+  --map-bg:#FFFDF6;
+  --map-grid:#F1E6CC;
+  --route-normal:#D98A00;
+  /* 地圖：可愛版與兒童花園 */
+  --meadow-1:#FFF1B8;
+  --meadow-2:#CDEFB0;
+  --tree:#57B86B;
+  --tree-hi:#8ED87F;
+  --trunk:#A8733A;
+  --grass:#4FA85E;
+  --pond:#8FD3F4;
+  --hill:#A9DE8C;
+  --cloud:#FFFFFF;
+  --route-cute:#FF6F91;
+  --fog:#F3E2B3;
+  --fog-dot:#E2CA8C;
+  /* 花園圖案的顏色 */
+  --g-sand:#F2C76E;
+  --g-rock:#9AA3A8;
+  --g-snow:#FFFFFF;
+  --g-pine:#2F8F5B;
+  --g-bld:#8FA9C9;
+  --g-bld2:#C7B8E8;
+  --g-win:#FFF6C9;
+  --g-tile:#5B6B7A;
+  --g-lantern:#F0503C;
+  --g-field:#B6DB7A;
+  --g-row:#7FB04E;
+  --g-hay:#F2C14E;
+  --g-giraffe:#F5B942;
+  --g-spot:#B56A1F;
+  --g-gold:#FFC21A;
+  --g-shell:#FFC1CF;
+  --g-car:#4A90E2;
+
+  /* 兒童頁面 */
+  --kid-bg:#FFD23F;
+  --kid-ink:#2B1B0A;
+  --kid-card:#FFF6D6;
+
+  /* 字體：先用手機內建字體（中國大陸讀不到 Google 字體） */
+  --font:-apple-system,BlinkMacSystemFont,"PingFang TC","PingFang SC","Noto Sans TC","Microsoft JhengHei",sans-serif;
+  --font-num:"SF Pro Rounded",-apple-system,"PingFang TC",sans-serif;
+
+  /* 形狀 */
+  --radius:18px;
+  --radius-lg:28px;
+  --shadow:0 6px 20px rgba(120,70,0,.12);
+
+  /* 背景蜂巢花紋（換成 none 就是純色背景） */
+  --pattern:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='56' viewBox='0 0 48 56'%3E%3Cpolygon points='24,4 42,14.5 42,35.5 24,46 6,35.5 6,14.5' fill='none' stroke='%23D98A00' stroke-opacity='0.09' stroke-width='1.5'/%3E%3C/svg%3E");
+}
+
+/* 匯出明信片、短片時一律用淺色（export-light） */
+@media (prefers-color-scheme:dark){
+  :root:not(.export-light){
+    --bg:#1A1208;
+    --card:#2A1D0E;
+    --ink:#FFF1D2;
+    --ink-soft:#CBB088;
+    --line:#3D2C16;
+    --honey-soft:#4A3510;
+    --shadow:0 6px 20px rgba(0,0,0,.45);
+    --kid-card:#3A2A10;
+    --map-bg:#241909;
+    --map-grid:#33250F;
+  }
+}
