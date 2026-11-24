@@ -328,7 +328,9 @@ async function mountOSM(el, pts, info, opt) {
   const start = pts[0] || opt.me || { lat: 25.034, lng: 121.5645 };
   const map = L.map(box, { zoomControl: false, attributionControl: true }).setView([start.lat, start.lng], 15);
   const tileUrl = s => CONFIG.osm.tiles[s] || CONFIG.osm.tiles.normal;
-  const tiles = L.tileLayer(tileUrl(opt.style), { maxZoom: 19, subdomains: 'abcd', attribution: CONFIG.osm.attribution }).addTo(map);
+  const tiles = L.tileLayer(tileUrl(opt.style), { maxZoom: 19, attribution: CONFIG.osm.attribution }).addTo(map);
+  const tint = s => { el.classList.remove('osm-normal', 'osm-cute', 'osm-night'); el.classList.add('osm-' + s); };
+  tint(opt.style);
   await new Promise((res, rej) => { const tm = setTimeout(() => rej(new Error('timeout')), 12000); tiles.once('tileload', () => { clearTimeout(tm); res(); }); })
     .catch(e => { try { map.remove(); } catch (x) {} throw e; });
   const on = i => opt.day == null || info.dayOf(pts[i]) === opt.day;
@@ -381,10 +383,10 @@ async function mountOSM(el, pts, info, opt) {
       raf = requestAnimationFrame(step);
     },
     hideRoute: clearRoute,
-    setStyle(s) { opt.style = s; tiles.setUrl(tileUrl(s)); paint(); if (line) line.setStyle({ color: routeColor() }); },
+    setStyle(s) { opt.style = s; tint(s); tiles.setUrl(tileUrl(s)); paint(); if (line) line.setStyle({ color: routeColor() }); },
     setDay(d) { opt.day = d; clearRoute(); paint(); fit(); },
     setMe,
-    destroy() { clearRoute(); try { map.remove(); } catch (e) {} }
+    destroy() { clearRoute(); el.classList.remove('osm-normal', 'osm-cute', 'osm-night'); try { map.remove(); } catch (e) {} }
   };
 }
 

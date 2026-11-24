@@ -3,7 +3,7 @@
 // 之後換成雲端儲存、換地圖服務、調整上限，主要改這裡。
 // ==========================================================
 export const CONFIG = {
-  version: '0.9.1',
+  version: '0.9.2',
   storage: 'local',      // 'local'＝存在手機本機；之後做好雲端改成 'cloud'
   map: 'amap',           // 地點搜尋服務：目前是高德；國外版之後可加其他服務
   nearbyRadius: 600,     // 搜尋附近地點的範圍（公尺）
@@ -17,11 +17,14 @@ export const CONFIG = {
   osm: {
     js: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
     css: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+    // 三種樣式都用 OpenStreetMap 標準圖磚（免費、不用金鑰），可愛和夜空用顏色濾鏡調（app.css 的 .osm-cute / .osm-night）
     tiles: {
-      normal: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-      cute: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-      night: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+      normal: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      cute: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      night: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
     },
+    attribution: '© OpenStreetMap'
+  },
     attribution: '© OpenStreetMap © CARTO'
   },
   mapStyles: { normal: 'amap://styles/normal', cute: 'amap://styles/macaron', night: 'amap://styles/darkblue' },
