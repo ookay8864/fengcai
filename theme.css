@@ -1,7 +1,7 @@
 /* ==========================================================
    蜂采 主題檔（theme.css）
    之後要換顏色、字體、圓角、背景花紋，只改這個檔案
-   和 assets/ 資料夾裡的圖（logo.svg、icons.svg），
+   和 ./ 資料夾裡的圖（logo.svg、icons.svg），
    不需要動 js/ 裡的任何功能程式。
    ========================================================== */
 :root{
@@ -38,6 +38,10 @@
   --mk-center-hi:#FFD66B;
   --mk-kid-bg:#FFE3EC;
   --mk-badge:#FFFFFF;
+  /* 首頁的旅行／日常開關：旅行＝蜂蜜色、日常＝綠色 */
+  --sw-trip:#F7B500;
+  --sw-daily:#7CC48A;
+  --sw-daily-ink:#2D7A43;
   /* 旅行包月曆：有旅行的日子墊一朵淡花 */
   --cal-flower:#FCE3A1;
   --cal-flower-c:#FFF1C9;
@@ -86,6 +90,11 @@
   --pc-sakura-bg:#FFF0F4; --pc-sakura-ink:#3A1A24; --pc-sakura-soft:#8A5A68; --pc-sakura-accent:#E8577E; --pc-sakura-card:#FFFFFF; --pc-sakura-chip:#F8CFDB;
   --pc-mint-bg:#EEF8F1; --pc-mint-ink:#13332A; --pc-mint-soft:#4F7466; --pc-mint-accent:#2E9E6E; --pc-mint-card:#FFFFFF; --pc-mint-chip:#CBE9D6;
   --pc-night-bg:#1E2440; --pc-night-ink:#F6F1E3; --pc-night-soft:#B9BDD6; --pc-night-accent:#FFC94A; --pc-night-card:#2C3458; --pc-night-chip:#3A4370;
+  /* 明信片配色裡的地圖：mapbg 地圖底、grid 格線、petal 花瓣／葉子、center 花心邊、route 路線、kid 孩子蜜蜂的底、stem 葉梗
+     meadow 可愛版草地上／下。夜空配色直接用上面「地圖：夜空版」那組 */
+  --pc-honey-mapbg:#FFFDF6; --pc-honey-grid:#F1E6CC; --pc-honey-petal:#F7B500; --pc-honey-center:#E07B00; --pc-honey-route:#D98A00; --pc-honey-kid:#FFE3EC; --pc-honey-meadow1:#FFF1B8; --pc-honey-meadow2:#CDEFB0;
+  --pc-sakura-mapbg:#FFF8FA; --pc-sakura-grid:#F7DDE5; --pc-sakura-petal:#F7A8C2; --pc-sakura-center:#E05A86; --pc-sakura-route:#E8779B; --pc-sakura-kid:#FFF1C9; --pc-sakura-meadow1:#FFEAF1; --pc-sakura-meadow2:#FBD3E0;
+  --pc-mint-mapbg:#F6FBF7; --pc-mint-grid:#D6ECDF; --pc-mint-petal:#5CBF8A; --pc-mint-center:#2A8A5C; --pc-mint-route:#3FA374; --pc-mint-kid:#FFF1C9; --pc-mint-meadow1:#EAF7E4; --pc-mint-meadow2:#C9EBC9; --pc-mint-stem:#2A8A5C;
 
   /* 兒童頁面 */
   --kid-bg:#FFD23F;

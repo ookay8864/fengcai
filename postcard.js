@@ -5,7 +5,7 @@
 // 配色：theme.css 的 --pc-<名稱>-* 變數；App 介面色另由 palette() 讀取
 // ==========================================================
 import { store, isKid, isAdult } from './store.js';
-import { adultMapSVG, svgToImage, finishRoute, markerOnlySVG, markerNumSVG, gardenSVG, dayInfo } from './map.js';
+import { adultMapSVG, svgToImage, finishRoute, markerOnlySVG, markerNumSVG, gardenSVG, dayInfo, SHAPES } from './map.js';
 import { distM } from './geo.js';
 import { getTheme } from './themes.js';
 import { dayKey, fmtDate, fmtTime } from './ui.js';
@@ -133,9 +133,9 @@ export function tripStats(data) {
 // 整趟旅程的順序 1、2、3…（地圖花心和清單共用）
 export function orderOf(data) { const o = {}; [...data.cs].sort((a, b) => a.ts - b.ts).forEach((c, i) => { o[c.id] = i + 1; }); return o; }
 const numImgCache = new Map();
-async function numImg(c, n) {
-  const key = `${isKid(c) ? 1 : 0}${isAdult(c) ? 1 : 0}-${n}`;
-  if (!numImgCache.has(key)) numImgCache.set(key, await svgToImage(markerNumSVG(c, n), 48, 48, 4).catch(() => null));
+async function numImg(c, n, pal) {
+  const key = `${isKid(c) ? 1 : 0}${isAdult(c) ? 1 : 0}-${n}-${pal}`;
+  if (!numImgCache.has(key)) numImgCache.set(key, await svgToImage(markerNumSVG(c, n, pal), 48, 48, 4).catch(() => null));
   return numImgCache.get(key);
 }
 export function statsLine(data) {
@@ -175,8 +175,11 @@ async function stopPhotos(data) {
   }
   return out;
 }
-async function mapImg(cs, style, w, h, seed, view) {
-  const svg = adultMapSVG(cs, style, w, h, seed, view);
+// 地圖跟著明信片配色：底色、花的顏色和造型、路線、地名一起換；夜空配色＝星空地圖
+async function mapImg(cs, opt, w, h, seed, view) {
+  const pal = PALETTES[opt.palette] ? opt.palette : 'honey';
+  const style = pal === 'night' ? 'night' : opt.style === 'cute' ? 'cute' : 'normal';
+  const svg = adultMapSVG(cs, style, w, h, seed, { ...view, pal, shape: SHAPES[pal] });
   return svg ? svgToImage(svg, w, h, 3, finishRoute) : null;
 }
 
@@ -251,7 +254,7 @@ export async function renderPostcard(data, o = {}) {
   const ctx = cv.getContext('2d');
   ctx.fillStyle = P.bg; ctx.fillRect(0, 0, W, H);
   hexPattern(ctx, W, H, P.accent);
-  const logo = await loadImg('assets/logo.svg').catch(() => null);
+  const logo = await loadImg('./logo.svg').catch(() => null);
   const mk = await markerImgs();
   const st = tripStats(data);
   const quote = (opt.quote || '').trim();
@@ -267,7 +270,7 @@ export async function renderPostcard(data, o = {}) {
     const by = Y + Ht + 36, qh = opt.show.quote && quote ? 110 : 0;
     const ms = Math.max(260, Math.min(H > 1500 ? 520 : 440, H - by - 90 - qh));
     shadowCard(ctx, 60, by, ms, ms, 36, P.card);
-    const mi = await mapImg(data.cs, opt.style, 360, 360, data.trip.id, { tags: true, order: orderOf(data) });
+    const mi = await mapImg(data.cs, opt, 360, 360, data.trip.id, { tags: true, order: orderOf(data) });
     if (mi) { ctx.save(); rr(ctx, 74, by + 14, ms - 28, ms - 28, 26); ctx.clip(); ctx.drawImage(mi, 74, by + 14, ms - 28, ms - 28); ctx.restore(); }
     const tx = 60 + ms + 36, tw = W - 60 - tx;
     if (logo) ctx.drawImage(logo, tx, by, 48, 48);
@@ -310,7 +313,7 @@ export async function renderPostcard(data, o = {}) {
     const mapH = Math.round(Math.min(H * .36, Math.max(260, H - y - 70 - qh - stops.length * 100)));
     shadowCard(ctx, 60, y, W - 120, mapH, 36, P.card);
     const mw = 480, mh = Math.round(480 * (mapH - 28) / (W - 148));
-    const mi = await mapImg(data.cs, opt.style, mw, mh, data.trip.id, { day: k });
+    const mi = await mapImg(data.cs, opt, mw, mh, data.trip.id, { day: k });
     if (mi) { ctx.save(); rr(ctx, 74, y + 14, W - 148, mapH - 28, 26); ctx.clip(); ctx.drawImage(mi, 74, y + 14, W - 148, mapH - 28); ctx.restore(); }
     y += mapH + 30;
     const avail = H - y - 70 - qh, rowH = Math.max(64, Math.min(H > 1500 ? 190 : 150, avail / Math.max(1, stops.length)));
@@ -395,13 +398,13 @@ export async function renderPostcard(data, o = {}) {
     mapH = Math.max(220, mapH);
     shadowCard(ctx, 60, y, W - 120, mapH, 40, P.card);
     const mw = 480, mh = Math.round(480 * (mapH - 36) / (W - 156));
-    const mi = await mapImg(data.cs, opt.style, mw, mh, data.trip.id, { tags: true, order: orderOf(data) });
+    const mi = await mapImg(data.cs, opt, mw, mh, data.trip.id, { tags: true, order: orderOf(data) });
     if (mi) { ctx.save(); rr(ctx, 78, y + 18, W - 156, mapH - 36, 28); ctx.clip(); ctx.drawImage(mi, 78, y + 18, W - 156, mapH - 36); ctx.restore(); }
     else T(ctx, '這趟旅程還沒有定位資料', W / 2, y + mapH / 2, 32, P.soft, 600, 'center');
     y += mapH + 24;
     if (listH) {
       const ord = orderOf(data), nimg = {};
-      for (const c of data.cs) nimg[c.id] = await numImg(c, ord[c.id]);
+      for (const c of data.cs) nimg[c.id] = await numImg(c, ord[c.id], opt.palette);
       dayLists(ctx, P, nimg, data, 60, y, W - 120, listH); y += listH + 24;
     }
     if (statsH) { statsRow(ctx, P, st, 60, y, W - 120, statsH); y += statsH + 24; }

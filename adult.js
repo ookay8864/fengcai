@@ -3,7 +3,7 @@ import { CONFIG, getSetting, setSetting } from './config.js';
 import { store, ensureActiveTrip, getActiveId, setActiveId, askPersist, isKid, isAdult, findMergeTarget, getMode, startTrip, resumeTrip, endTrip, isDaily, moveDaysToTrip } from './store.js';
 import { getPosition, nearby, badgeOf, BADGES, shortType, isDemo, amapLink } from './geo.js';
 import { compressImage, videoThumb, startRecorder, blobDims } from './media.js';
-import { mountMap, gardenSVG, dayInfo, defaultDay, markerSVG, whoText } from './map.js';
+import { mountMap, gardenSVG, dayInfo, defaultDay, markerSVG, markerNumSVG, whoText } from './map.js';
 import { allThemes, getTheme, themeIcon, itemIcon, ITEMS, GROUNDS, listCustom, saveCustom, deleteCustom } from './themes.js';
 import { collect, renderPostcard, DEFAULT_PC, PALETTES, TEMPLATES, SIZES } from './postcard.js';
 import { makeVideo, estimate, canMakeVideo, selectVisuals, layoutItems, stopDuration, voiceLen, isLand, PER_STOP } from './video.js';
@@ -65,7 +65,7 @@ function cardHTML({ c, m }) {
     ${aud.length ? `<span class="aud">${icon('mic')}${aud.length}</span>` : ''}
   </a>`;
 }
-const topbar = () => `<header class="top"><img src="assets/logo.svg" class="logo" alt=""><div><h1>蜂采</h1><p class="sub">飛到哪，甜到哪</p></div></header>`;
+const topbar = () => `<header class="top"><img src="./logo.svg" class="logo" alt=""><div><h1>蜂采</h1><p class="sub">飛到哪，甜到哪</p></div></header>`;
 
 // ---------- 首頁 ----------
 async function home() {
@@ -90,24 +90,103 @@ async function home() {
   bindModeBar();
 }
 
-// 日常／旅行中 的切換列
+// 日常／旅行中 的滑動開關：左＝旅行、右＝日常
 function modeBar(t) {
-  return isDaily(t)
-    ? `<div class="modebar"><a class="mb-t" href="#trip/${t.id}">${icon('flower')}<span><b>日常</b><small>打卡會記在「${esc(t.name.replace(/^\d+ 年 /, ''))}」</small></span></a><button class="btn main sm" id="mbstart">${icon('trip')}開始旅行</button></div>`
-    : `<div class="modebar trip"><a class="mb-t" href="#trip/${t.id}">${icon('trip')}<span><small>旅行中</small><b>${esc(t.name)}</b></span></a><button class="btn sm" id="mbend">結束旅行</button></div>`;
+  const trip = !isDaily(t);
+  return `<div class="modebar${trip ? ' trip' : ''}">
+    <div class="mswitch${trip ? ' is-trip' : ''}" id="msw" role="switch" aria-checked="${trip}" aria-label="旅行或日常" tabindex="0"><span class="ms-k" id="msk"></span><span class="ms-l">${icon('trip')}旅行</span><span class="ms-r">${icon('flower')}日常</span></div>
+    <p class="ms-info">${trip ? `<span>旅行中：<a href="#trip/${t.id}"><b>${esc(t.name)}</b></a></span><button class="ms-ren" id="msren" aria-label="改名">${icon('edit')}改名</button>` : `<span>打卡會記在「<a href="#trip/${t.id}">${esc(t.name.replace(/^\d+ 年 /, ''))}</a>」，往左滑開始旅行</span>`}</p>
+  </div>`;
 }
-async function askStartTrip() {
-  const name = await inputDlg('開始一趟旅行', '', '例如：雲南 4 日');
-  if (!name) return false;
-  await startTrip(name);
-  toast(`出發！之後的打卡都會放進「${name}」`);
-  return true;
+const pad2 = n => String(n).padStart(2, '0');
+async function goTrip() {
+  // 12 小時內剛結束的旅行：問要不要接著用
+  const recent = (await store.listTrips()).filter(x => !isDaily(x) && x.endedAt && Date.now() - x.endedAt < 12 * 3600e3).sort((p, q) => q.endedAt - p.endedAt)[0];
+  if (recent && await confirmDlg(`要繼續剛才的「${recent.name}」，還是開始新的旅行？`, `繼續${recent.name.length > 8 ? '這趟' : `「${recent.name}」`}`, '新的旅行')) {
+    delete recent.endedAt; await store.saveTrip(recent); resumeTrip(recent.id);
+    toast(`繼續旅行：${recent.name}`); return;
+  }
+  const d = new Date(), names = (await store.listTrips()).map(x => x.name);
+  let name = `${d.getMonth() + 1}月${d.getDate()}日出發`, k = 2;
+  while (names.includes(name)) name = `${d.getMonth() + 1}月${d.getDate()}日出發（${k++}）`;
+  await startTrip(name, { nameAuto: true });
+  toast(`出發！之後的打卡都放進「${name}」`);
+}
+async function goDaily() {
+  const t = await ensureActiveTrip();
+  if (isDaily(t)) return;
+  endTrip(); t.endedAt = Date.now(); await store.saveTrip(t);
+  const cs = await store.listCheckins(t.id);
+  const undo = async () => { delete t.endedAt; await store.saveTrip(t); resumeTrip(t.id); toast('已回到旅行'); rerender(); };
+  if (t.nameAuto && cs.length) nameCard(t, cs, undo);
+  else snack('歡迎回家，已回到日常', '復原', undo);
+}
+// 旅行結束：依照去過的地方建議名字
+function nameSuggest(t, cs) {
+  const nm = s => String(s || '').replace(/（模擬）/g, '').trim();
+  const places = [...new Set(cs.map(c => nm(c.placeName)).filter(Boolean))];
+  const short = s => (s.length > 6 ? s.slice(0, 6) : s);
+  const days = new Set(cs.map(c => dayKey(c.ts))).size, d = new Date(cs[0].ts);
+  const A = short(places[0] || ''), B = places.length > 1 ? short(places[places.length - 1]) : '';
+  const dn = days === 1 ? '一日遊' : `${days} 日`;
+  return [...new Set([B ? `${A}・${B} ${dn}` : `${A} ${dn}`, `${d.getMonth() + 1}月 ${A}之旅`, `${d.getFullYear()} 年 ${d.getMonth() + 1} 月的小旅行`])];
+}
+function nameCard(t, cs, undo) {
+  const sug = nameSuggest(t, cs);
+  const ov = overlay(`<h2 class="h2" style="margin-top:0">${icon('flower')}歡迎回家！</h2>
+    <p class="muted" style="margin-top:0">幫這趟旅行取個名字？點一個就好，之後也能再改。</p>
+    <div class="namesug">${sug.map((s, i) => `<button data-s="${i}">${esc(s)}</button>`).join('')}</div>
+    <label class="lbl" for="nmin">或自己寫</label><input id="nmin" class="inp" maxlength="24" placeholder="${esc(t.name)}">
+    <div class="row"><button class="btn" id="nmskip">先不用</button><button class="btn main" id="nmok">${icon('check')}好</button></div>
+    <button class="linkbtn" id="nmundo" style="display:block;margin:8px auto 0">不小心滑到的？回到旅行</button>`);
+  const save = async name => { if (name) { t.name = name; t.nameAuto = false; await store.saveTrip(t); toast(`已命名為「${name}」`); } ov.remove(); rerender(); };
+  ov.querySelectorAll('[data-s]').forEach(b => b.onclick = () => save(sug[+b.dataset.s]));
+  ov.querySelector('#nmok').onclick = () => save(ov.querySelector('#nmin').value.trim());
+  ov.querySelector('#nmskip').onclick = () => save('');
+  ov.querySelector('#nmundo').onclick = () => { ov.remove(); undo(); };
+}
+// 底部提示＋一個按鈕（例如「復原」）
+function snack(msg, label, fn, ms = 5000) {
+  document.querySelector('.snack')?.remove();
+  const el = document.createElement('div');
+  el.className = 'snack'; el.innerHTML = `<span>${esc(msg)}</span><button>${esc(label)}</button>`;
+  document.body.appendChild(el);
+  const tm = setTimeout(() => el.remove(), ms);
+  el.querySelector('button').onclick = () => { clearTimeout(tm); el.remove(); fn(); };
 }
 function bindModeBar() {
-  if ($('#mbstart')) $('#mbstart').onclick = async () => { if (await askStartTrip()) rerender(); };
-  if ($('#mbend')) $('#mbend').onclick = async () => {
-    if (!(await confirmDlg('結束這趟旅行？之後的打卡會回到「日常」。旅行包裡的紀錄都會保留。', '結束旅行', '還沒'))) return;
-    endTrip(); toast('歡迎回家！已回到日常'); rerender();
+  const sw = $('#msw'); if (!sw) return;
+  const k = $('#msk');
+  let trip = sw.classList.contains('is-trip'), sx = null, moved = false, busy = false;
+  const span = () => sw.clientWidth / 2;
+  const set = async toTrip => {
+    if (busy || toTrip === trip) { k.style.transform = ''; return; }
+    busy = true; trip = toTrip;
+    sw.classList.toggle('is-trip', toTrip); sw.setAttribute('aria-checked', toTrip); k.style.transform = '';
+    await new Promise(r => setTimeout(r, 260));
+    if (toTrip) await goTrip(); else await goDaily();
+    busy = false; rerender();
+  };
+  sw.addEventListener('pointerdown', e => { sx = e.clientX; moved = false; sw.setPointerCapture(e.pointerId); k.style.transition = 'none'; });
+  sw.addEventListener('pointermove', e => {
+    if (sx == null) return;
+    const dx = e.clientX - sx; if (Math.abs(dx) > 6) moved = true;
+    const base = trip ? 0 : span(), x = Math.max(0, Math.min(span(), base + dx));
+    k.style.transform = `translateX(${x - base}px)`;
+  });
+  sw.addEventListener('pointerup', e => {
+    if (sx == null) return;
+    const dx = e.clientX - sx; sx = null; k.style.transition = '';
+    if (!moved) { set(!trip); return; }
+    const base = trip ? 0 : span();
+    set(base + dx < span() / 2);
+  });
+  sw.addEventListener('pointercancel', () => { sx = null; k.style.transition = ''; k.style.transform = ''; });
+  sw.onkeydown = e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); set(!trip); } if (e.key === 'ArrowLeft') set(true); if (e.key === 'ArrowRight') set(false); };
+  if ($('#msren')) $('#msren').onclick = async () => {
+    const t = await ensureActiveTrip();
+    const n = await inputDlg('旅行的名字', t.name);
+    if (n) { t.name = n; t.nameAuto = false; await store.saveTrip(t); rerender(); }
   };
 }
 
@@ -317,7 +396,7 @@ async function trips() {
     on ? openNodes.add(el.dataset.node) : openNodes.delete(el.dataset.node);
   };
   view.querySelectorAll('.tn-head').forEach(b => b.onclick = () => { const el = b.closest('.tnode'); setOpen(el, !el.classList.contains('open')); });
-  if ($('#new')) $('#new').onclick = async () => { if (await askStartTrip()) rerender(); };
+  if ($('#new')) $('#new').onclick = async () => { await goTrip(); rerender(); };
   drawCal();
   // 封面小圖：每包第一張照片
   for (const n of nodes) {
@@ -778,8 +857,9 @@ async function cardView(id) {
       });
       if ($('#phreset')) $('#phreset').onclick = () => { pc.photoIds = null; openPanel('photos', true); changed(); };
     } else if (k === 'color') {
-      el.innerHTML = `<p class="lbl" style="margin-top:0">配色</p><div class="pcpal">${Object.entries(PALETTES).map(([key, n]) => `<button data-pal="${key}" class="pal-${key}${pc.palette === key ? ' on' : ''}"><i></i>${n}</button>`).join('')}</div>
-        ${pc.tpl === 'D' ? '' : `<p class="lbl">地圖樣式</p>${styleSeg(pc.style, 'data-ms')}`}`;
+      el.innerHTML = `<p class="lbl" style="margin-top:0">配色</p><div class="pcpal">${Object.entries(PALETTES).map(([key, n]) => `<button data-pal="${key}" class="pal-${key}${pc.palette === key ? ' on' : ''}"><i>${markerNumSVG({ adult: true, kid: false }, ' ', key)}</i>${n}</button>`).join('')}</div>
+        ${pc.tpl === 'D' ? '' : pc.palette === 'night' ? '<p class="muted sm">夜空配色會用星空地圖。</p>' : `<p class="lbl">地圖樣式</p><div class="seg" role="group" aria-label="地圖樣式"><button data-ms="normal" class="${pc.style !== 'cute' ? 'on' : ''}">簡潔</button><button data-ms="cute" class="${pc.style === 'cute' ? 'on' : ''}">可愛</button></div>`}
+        <p class="muted sm">換配色時，地圖的底色、花的顏色和造型、文字會一起換：櫻花是櫻花瓣、薄荷是四葉草。</p>`;
       el.querySelectorAll('[data-pal]').forEach(b => b.onclick = () => { pc.palette = b.dataset.pal; openPanel('color', true); changed(); });
       el.querySelectorAll('[data-ms]').forEach(b => b.onclick = () => { pc.style = b.dataset.ms; openPanel('color', true); changed(); });
     } else if (k === 'text') {
@@ -835,7 +915,7 @@ async function trip(id) {
     t.dayThemes = { ...(t.dayThemes || {}), [b.dataset.day]: tid };
     await store.saveTrip(t); toast('已更新這天的花園主題'); rerender();
   });
-  if ($('#ren')) $('#ren').onclick = async () => { const n = await inputDlg('旅程名稱', t.name); if (n) { t.name = n; await store.saveTrip(t); rerender(); } };
+  if ($('#ren')) $('#ren').onclick = async () => { const n = await inputDlg('旅程名稱', t.name); if (n) { t.name = n; t.nameAuto = false; await store.saveTrip(t); rerender(); } };
   if ($('#act')) $('#act').onclick = () => { resumeTrip(id); toast(`繼續旅行：之後的打卡會放進「${t.name}」`); rerender(); };
   if ($('#mv')) $('#mv').onclick = () => moveDaysDlg(t, days);
   $('#del').onclick = async () => {

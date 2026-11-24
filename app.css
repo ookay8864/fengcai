@@ -201,6 +201,15 @@ body.kid{background:var(--kid-bg) var(--pattern);color:var(--kid-ink)}
 .mk-kidring{fill:var(--mk-kid-bg);stroke:var(--petal);stroke-width:1.5}
 .m-tag{font-weight:800;fill:var(--honey-deep)}
 .mk-center-num{fill:var(--mk-center-fill,#fff);stroke:var(--mk-center);stroke-width:1.4}
+/* 明信片配色：地圖跟著換色（花、底、路線、文字） */
+.mapsvg.pal-honey{--map-bg:var(--pc-honey-mapbg);--map-grid:var(--pc-honey-grid);--mk-flower:var(--pc-honey-petal);--mk-center:var(--pc-honey-center);--mk-center-hi:var(--pc-honey-petal);--route-normal:var(--pc-honey-route);--route-cute:var(--pc-honey-route);--mk-kid-bg:var(--pc-honey-kid);--meadow-1:var(--pc-honey-meadow1);--meadow-2:var(--pc-honey-meadow2);--ink:var(--pc-honey-ink);--ink-soft:var(--pc-honey-soft);--honey-deep:var(--pc-honey-accent);--mk-stem:var(--pc-honey-stem,var(--pc-honey-center))}
+.mapsvg.pal-sakura{--map-bg:var(--pc-sakura-mapbg);--map-grid:var(--pc-sakura-grid);--mk-flower:var(--pc-sakura-petal);--mk-center:var(--pc-sakura-center);--mk-center-hi:var(--pc-sakura-petal);--route-normal:var(--pc-sakura-route);--route-cute:var(--pc-sakura-route);--mk-kid-bg:var(--pc-sakura-kid);--meadow-1:var(--pc-sakura-meadow1);--meadow-2:var(--pc-sakura-meadow2);--ink:var(--pc-sakura-ink);--ink-soft:var(--pc-sakura-soft);--honey-deep:var(--pc-sakura-accent);--mk-stem:var(--pc-sakura-stem,var(--pc-sakura-center))}
+.mapsvg.pal-mint{--map-bg:var(--pc-mint-mapbg);--map-grid:var(--pc-mint-grid);--mk-flower:var(--pc-mint-petal);--mk-center:var(--pc-mint-center);--mk-center-hi:var(--pc-mint-petal);--route-normal:var(--pc-mint-route);--route-cute:var(--pc-mint-route);--mk-kid-bg:var(--pc-mint-kid);--meadow-1:var(--pc-mint-meadow1);--meadow-2:var(--pc-mint-meadow2);--ink:var(--pc-mint-ink);--ink-soft:var(--pc-mint-soft);--honey-deep:var(--pc-mint-accent);--mk-stem:var(--pc-mint-stem,var(--pc-mint-center))}
+.mapsvg.pal-night{--mk-stem:var(--night-gold)}
+.mapsvg.pal-sakura .m-compass,.mapsvg.pal-mint .m-compass{fill:var(--mk-center)}
+.mapsvg.pal-sakura .mk-num,.mapsvg.pal-mint .mk-num{fill:var(--mk-center)}
+.mk-edge{stroke:var(--mk-center);stroke-width:.6;stroke-opacity:.35}
+.mk-stem{fill:none;stroke:var(--mk-stem,var(--leaf));stroke-linecap:round}
 /* 夜空版地圖：只換這張地圖裡的顏色 */
 .mapsvg.night{--map-bg:var(--night-bg);--ink:var(--night-ink);--mk-flower:var(--night-gold);--mk-center:var(--night-gold-hi);--mk-center-hi:var(--night-gold-hi);--mk-center-fill:var(--night-bg);--mk-badge:var(--night-bg);--mk-kid-bg:var(--night-kid-bg);--route-normal:var(--night-gold);--line:#2A3355;--ink-soft:#AEB3CF}
 .mapsvg.night .mk-num{fill:var(--night-ink)}
@@ -374,11 +383,12 @@ body.kid{background:var(--kid-bg) var(--pattern);color:var(--kid-ink)}
 .pcpal{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
 .pcpal button{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 2px;border-radius:12px;border:2px solid var(--line);background:var(--bg);color:var(--ink);font:700 12px var(--font);cursor:pointer}
 .pcpal button.on{border-color:var(--hive)}
-.pcpal i{width:34px;height:34px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 1px var(--line)}
-.pal-honey i{background:linear-gradient(135deg,var(--pc-honey-bg) 50%,var(--pc-honey-accent) 50%)}
-.pal-sakura i{background:linear-gradient(135deg,var(--pc-sakura-bg) 50%,var(--pc-sakura-accent) 50%)}
-.pal-mint i{background:linear-gradient(135deg,var(--pc-mint-bg) 50%,var(--pc-mint-accent) 50%)}
-.pal-night i{background:linear-gradient(135deg,var(--pc-night-bg) 50%,var(--pc-night-accent) 50%)}
+.pcpal i{width:40px;height:40px;border-radius:50%;box-shadow:0 0 0 1px var(--line);display:grid;place-items:center;overflow:hidden}
+.pcpal i svg{width:38px;height:38px}
+.pal-honey i{background:var(--pc-honey-mapbg)}
+.pal-sakura i{background:var(--pc-sakura-mapbg)}
+.pal-mint i{background:var(--pc-mint-mapbg)}
+.pal-night i{background:var(--night-bg)}
 .kgoal{background:#fff;border-radius:18px;padding:12px 16px;margin-top:14px;text-align:center;font-size:17px}
 .kbar{height:14px;border-radius:99px;background:var(--fog);overflow:hidden;margin-top:8px}
 .kbar span{display:block;height:100%;background:var(--petal);border-radius:99px;transition:width .8s}
@@ -454,3 +464,22 @@ body.kid{background:var(--kid-bg) var(--pattern);color:var(--kid-ink)}
 .tn-stop b{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tn-tm{font:600 13px var(--font-num);color:var(--ink-soft);min-width:40px}
 .tn-act{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+
+/* ---------- v0.8.1 旅行／日常 滑動開關 ---------- */
+.modebar{flex-direction:column;align-items:stretch;gap:8px}
+.mswitch{position:relative;display:flex;height:54px;border-radius:27px;background:var(--sw-daily,#7CC48A);cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:none;transition:background .25s}
+.mswitch.is-trip{background:var(--sw-trip,var(--honey))}
+.ms-k{position:absolute;top:4px;left:4px;width:calc(50% - 4px);height:46px;border-radius:23px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.15);transition:transform .25s;transform:none}
+.mswitch:not(.is-trip) .ms-k{left:50%}
+.ms-l,.ms-r{position:relative;z-index:1;flex:1;display:flex;align-items:center;justify-content:center;gap:6px;font:800 16px var(--font);color:#fff;pointer-events:none;transition:color .25s}
+.ms-l .ic,.ms-r .ic{width:20px;height:20px}
+.mswitch.is-trip .ms-l{color:var(--honey-deep)}
+.mswitch:not(.is-trip) .ms-r{color:var(--sw-daily-ink,#2D7A43)}
+.ms-info{margin:0;font-size:13.5px;color:var(--ink-soft);display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;padding:0 4px}
+.ms-info a{color:var(--ink);text-decoration:none}
+.ms-ren{border:0;background:none;color:var(--honey-deep);font:700 13px var(--font);display:inline-flex;align-items:center;gap:3px;cursor:pointer;padding:4px}
+.ms-ren .ic{width:15px;height:15px}
+.namesug{display:grid;gap:8px}
+.namesug button{padding:12px 14px;border-radius:14px;border:2px solid var(--line);background:var(--bg);color:var(--ink);font:700 15px var(--font);text-align:left;cursor:pointer}
+.snack{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;align-items:center;gap:14px;padding:12px 16px;border-radius:16px;background:var(--hive);color:#fff;font:600 14px var(--font);z-index:60;box-shadow:var(--shadow);max-width:92vw}
+.snack button{border:0;background:none;color:var(--honey);font:800 14px var(--font);cursor:pointer;padding:4px}

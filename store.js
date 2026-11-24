@@ -128,8 +128,8 @@ export async function ensureActiveTrip() {
   }
   return ensureDaily();
 }
-export async function startTrip(name) {
-  const t = { id: uid(), name, createdAt: Date.now() };
+export async function startTrip(name, extra = {}) {
+  const t = { id: uid(), name, createdAt: Date.now(), ...extra };
   await store.saveTrip(t);
   setActiveId(t.id); setMode('trip');
   return t;

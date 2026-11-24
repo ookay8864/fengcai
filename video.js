@@ -171,7 +171,7 @@ export async function makeVideo(data, opt, ui) {
   const mkOf = c => mkImg[isKid(c) && isAdult(c) ? 'b' : isKid(c) ? 'k' : 'a'];
   L.segs = segments(L.xy);
   const days = [...new Set(data.cs.map(c => dayKey(c.ts)))];
-  const logo = await loadImg('assets/logo.svg').catch(() => null);
+  const logo = await loadImg('./logo.svg').catch(() => null);
 
   // 每一站的素材（沒有定位的站也放，只是蜜蜂不會飛過去）
   ui.onStatus('整理照片和錄音…');

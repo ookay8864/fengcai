@@ -64,7 +64,26 @@ function smooth(xy) {
 // ---------- 打卡標記：花＝大人、蜜蜂＝孩子、蜜蜂採花＝一起 ----------
 // 之後換風格：改這一段的圖形；顏色在 theme.css 的 --mk-* 變數
 const BEE = `<g class="bee-g"><ellipse cx="-6" cy="-7" rx="7" ry="4.5" transform="rotate(-25 -6 -7)" class="bee-w"/><ellipse cx="6" cy="-7" rx="7" ry="4.5" transform="rotate(25 6 -7)" class="bee-w"/><ellipse cx="0" cy="0" rx="8" ry="9.5" class="bee-b"/><path d="M-7.5 -2h15M-7.5 3h15" class="bee-s"/><circle cx="0" cy="-10" r="4.5" class="bee-h"/></g>`;
+// 花的造型：flower 圓瓣花（預設）、sakura 櫻花瓣、clover 四葉草
+// 明信片換配色時會換造型；中心圓（mk-center）位置不變，號碼一樣放在中間
+let SHAPE = 'flower';
+export const SHAPES = { honey: 'flower', sakura: 'sakura', mint: 'clover', night: 'flower' };
+function withShape(shape, fn) { const old = SHAPE; SHAPE = shape || 'flower'; try { return fn(); } finally { SHAPE = old; } }
+const centerOf = (x, y, r) => `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(r * .5)}" class="mk-center"/><circle cx="${f1(x - r * .15)}" cy="${f1(y - r * .15)}" r="${f1(r * .14)}" class="mk-hi"/>`;
+function sakuraShape(x, y, r) {
+  const p = `M0 0C${f1(-.62 * r)} ${f1(-.3 * r)} ${f1(-.72 * r)} ${f1(-1.05 * r)} ${f1(-.24 * r)} ${f1(-1.32 * r)}L0 ${f1(-1.1 * r)}L${f1(.24 * r)} ${f1(-1.32 * r)}C${f1(.72 * r)} ${f1(-1.05 * r)} ${f1(.62 * r)} ${f1(-.3 * r)} 0 0Z`;
+  const petals = [0, 72, 144, 216, 288].map(a => `<path d="${p}" transform="translate(${f1(x)} ${f1(y)}) rotate(${a})" class="mk-petal mk-edge"/>`).join('');
+  return petals + centerOf(x, y, r);
+}
+function cloverShape(x, y, r) {
+  const p = `M0 0C${f1(-.22 * r)} ${f1(-.22 * r)} ${f1(-.9 * r)} ${f1(-.5 * r)} ${f1(-.66 * r)} ${f1(-1.02 * r)}C${f1(-.48 * r)} ${f1(-1.36 * r)} ${f1(-.06 * r)} ${f1(-1.28 * r)} 0 ${f1(-.94 * r)}C${f1(.06 * r)} ${f1(-1.28 * r)} ${f1(.48 * r)} ${f1(-1.36 * r)} ${f1(.66 * r)} ${f1(-1.02 * r)}C${f1(.9 * r)} ${f1(-.5 * r)} ${f1(.22 * r)} ${f1(-.22 * r)} 0 0Z`;
+  const stem = `<path d="M${f1(x)} ${f1(y)}Q${f1(x + .3 * r)} ${f1(y + 1.05 * r)} ${f1(x + 1.02 * r)} ${f1(y + 1.22 * r)}" class="mk-stem" style="stroke-width:${f1(r * .16)}"/>`;
+  const leaves = [45, 135, 225, 315].map(a => `<path d="${p}" transform="translate(${f1(x)} ${f1(y)}) rotate(${a})" class="mk-petal mk-edge"/>`).join('');
+  return stem + leaves + centerOf(x, y, r);
+}
 function flowerShape(x, y, r) {
+  if (SHAPE === 'sakura') return sakuraShape(x, y, r);
+  if (SHAPE === 'clover') return cloverShape(x, y, r);
   const petals = Array.from({ length: 5 }, (_, i) => {
     const a = (i * 72 - 90) * Math.PI / 180;
     return `<circle cx="${f1(x + Math.cos(a) * r * .72)}" cy="${f1(y + Math.sin(a) * r * .72)}" r="${f1(r * .56)}" class="mk-petal"/>`;
@@ -160,6 +179,9 @@ function stars(R, W, H, xy) {
 const compass = (W, s, H) => `<g transform="translate(${W - 22} 24)"><path d="M0 -12 L5 4 L0 0 L-5 4 Z" class="m-compass"/><text y="17" class="m-small" text-anchor="middle">北</text></g>${scaleBar(s, W, H)}`;
 
 function svgAdult(pts, info, style, W, H, seed, view = {}) {
+  return withShape(view.shape, () => svgAdultInner(pts, info, style, W, H, seed, view));
+}
+function svgAdultInner(pts, info, style, W, H, seed, view) {
   const id = `m${++seq}`;
   const cute = style === 'cute', night = style === 'night';
   const { xy, s } = project(pts, W, H, 42, view.tags ? 36 : cute ? 32 : 28);
@@ -231,7 +253,7 @@ function svgAdult(pts, info, style, W, H, seed, view = {}) {
     pillBoxes.push([cx, cy]);
     return `<g class="daypill" data-day="${k}"><rect x="${f1(cx - 28)}" y="${f1(cy - 10)}" width="56" height="20" rx="10" class="m-daypill"/><text x="${f1(cx)}" y="${f1(cy)}" dy=".35em" text-anchor="middle" class="m-daytext">第 ${k + 1} 天</text></g>`;
   }).join('') : '';
-  return `<svg viewBox="0 0 ${W} ${H}" class="mapsvg ${cute ? 'cute' : night ? 'normal night' : 'normal'}" role="img" aria-label="採蜜地圖，共 ${pts.length} 個地點">
+  return `<svg viewBox="0 0 ${W} ${H}" class="mapsvg ${cute ? 'cute' : night ? 'normal night' : 'normal'}${view.pal ? ' pal-' + view.pal : ''}" role="img" aria-label="採蜜地圖，共 ${pts.length} 個地點">
     ${bg}<g class="rt">${routeSvg}</g>${faded}${pills}${active}<g class="bee" transform="translate(-50 -50)">${BEE}</g></svg>`;
 }
 
@@ -478,4 +500,4 @@ export function adultLayout(checkins, style, W, H) {
 }
 
 // 明信片清單用：花心有號碼的標記圖
-export const markerNumSVG = (c, n) => `<svg viewBox="-24 -24 48 48">${markerSVG(0, 0, c, n, 1.35, '', null, 'center')}</svg>`;
+export const markerNumSVG = (c, n, pal) => `<svg viewBox="-24 -24 48 48" class="mapsvg${pal ? ' pal-' + pal : ''}${pal === 'night' ? ' night' : ''}">${withShape(SHAPES[pal], () => markerSVG(0, 0, c, n, 1.35, '', null, 'center'))}</svg>`;
