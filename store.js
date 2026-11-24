@@ -24,8 +24,22 @@ function db() {
       if (!has('media')) d.createObjectStore('media', { keyPath: 'id' }).createIndex('checkin', 'checkinId');
     };
     dbp = P(r).then(d => { d.onversionchange = () => { d.close(); dbp = null; }; return d; });
+    waitHint(dbp);
   }
   return dbp;
+}
+// 資料庫 4 秒還打不開（通常是另一個舊版畫面還開著）：顯示提示，不讓畫面一片空白
+function waitHint(p) {
+  let done = false;
+  p.then(() => { done = true; document.getElementById('dbwait')?.remove(); }, () => { done = true; });
+  setTimeout(() => {
+    if (done || document.getElementById('dbwait')) return;
+    const el = document.createElement('div');
+    el.id = 'dbwait';
+    el.style.cssText = 'position:fixed;inset:0;z-index:99;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(43,27,10,.75)';
+    el.innerHTML = '<div style="max-width:320px;padding:20px;border-radius:20px;background:#FFF8E7;color:#2B1B0A;font:16px/1.6 system-ui,sans-serif;text-align:center"><b style="font-size:18px">蜂采正在等另一個畫面</b><p style="margin:8px 0 0">可能有舊版的蜂采還開著。請把蜂采完全關掉（從下往上滑、把蜂采往上推掉），也關掉 Safari 裡其他蜂采的分頁，再重新打開。你的紀錄都還在。</p></div>';
+    document.body.appendChild(el);
+  }, 4000);
 }
 // 時光膠囊放在自己的資料庫，加功能時不用動到上面那一個
 let capp = null;
