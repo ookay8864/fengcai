@@ -5,7 +5,7 @@ import { getPosition, nearby, badgeOf, BADGES, shortType, isDemo, amapLink } fro
 import { compressImage, videoThumb, startRecorder, blobDims } from './media.js';
 import { mountMap, gardenSVG, dayInfo, defaultDay, markerSVG, whoText } from './map.js';
 import { allThemes, getTheme, themeIcon, itemIcon, ITEMS, GROUNDS, listCustom, saveCustom, deleteCustom } from './themes.js';
-import { collect, renderPostcard } from './postcard.js';
+import { collect, renderPostcard, DEFAULT_PC, PALETTES, TEMPLATES, SIZES } from './postcard.js';
 import { makeVideo, estimate, canMakeVideo, selectVisuals, layoutItems, stopDuration, voiceLen, isLand, PER_STOP } from './video.js';
 import { TRACKS } from './music.js';
 import { $, esc, toast, confirmDlg, inputDlg, fmtTime, fmtDate, dayKey, uid, icon } from './ui.js';
@@ -541,26 +541,35 @@ async function videoView(id) {
 }
 
 // ---------- 足跡明信片 ----------
+const TPL_THUMB = {
+  A: '<rect width="60" height="75" rx="5" fill="#FFF8E7"/><rect x="6" y="6" width="34" height="5" rx="2" fill="#2B1B0A"/><rect x="6" y="15" width="48" height="26" rx="4" fill="#E3F2D2"/><circle cx="14" cy="34" r="2.5" fill="#F7B500"/><circle cx="30" cy="25" r="2.5" fill="#FFC21A"/><circle cx="46" cy="20" r="2.5" fill="#F7B500"/><rect x="6" y="45" width="22" height="3" rx="1" fill="#D98A00"/><rect x="6" y="51" width="20" height="2" fill="#B4B2A9"/><rect x="32" y="45" width="22" height="3" rx="1" fill="#D98A00"/><rect x="32" y="51" width="20" height="2" fill="#B4B2A9"/><rect x="6" y="59" width="10" height="9" rx="2" fill="#fff"/><rect x="19" y="59" width="10" height="9" rx="2" fill="#fff"/><rect x="32" y="59" width="10" height="9" rx="2" fill="#fff"/><rect x="45" y="59" width="10" height="9" rx="2" fill="#fff"/>',
+  B: '<rect width="60" height="75" rx="5" fill="#FFF8E7"/><rect x="5" y="5" width="31" height="36" rx="3" fill="#85B7EB"/><rect x="39" y="5" width="16" height="17" rx="3" fill="#F0997B"/><rect x="39" y="24" width="16" height="17" rx="3" fill="#97C459"/><rect x="5" y="45" width="22" height="22" rx="4" fill="#E3F2D2"/><rect x="31" y="46" width="24" height="5" rx="2" fill="#2B1B0A"/><rect x="31" y="55" width="20" height="2" fill="#B4B2A9"/><rect x="31" y="60" width="22" height="2" fill="#B4B2A9"/>',
+  C: '<rect width="60" height="75" rx="5" fill="#FFF8E7"/><rect x="5" y="5" width="16" height="6" rx="3" fill="#D98A00"/><rect x="5" y="14" width="40" height="5" rx="2" fill="#2B1B0A"/><rect x="5" y="22" width="50" height="22" rx="4" fill="#E3F2D2"/><path d="M10 39 L24 29 L38 35 L50 27" fill="none" stroke="#D98A00" stroke-width="1.5"/><line x1="10" y1="50" x2="10" y2="70" stroke="#F3E2B3" stroke-width="2"/><circle cx="10" cy="51" r="2.5" fill="#F7B500"/><rect x="16" y="49" width="20" height="3" fill="#2B1B0A"/><rect x="44" y="47" width="11" height="8" rx="2" fill="#85B7EB"/><circle cx="10" cy="62" r="2.5" fill="#FFC21A"/><rect x="16" y="60" width="16" height="3" fill="#2B1B0A"/><rect x="44" y="58" width="11" height="8" rx="2" fill="#F0997B"/>',
+  D: '<rect width="60" height="75" rx="5" fill="#FFD23F"/><rect x="5" y="5" width="34" height="5" rx="2" fill="#2B1B0A"/><rect x="5" y="13" width="50" height="38" rx="5" fill="#F3E2B3"/><circle cx="17" cy="42" r="9" fill="#FFE8A3"/><circle cx="33" cy="30" r="9" fill="#CDEFB4"/><circle cx="46" cy="20" r="8" fill="#DDF2FF"/><circle cx="17" cy="42" r="2.5" fill="#FFC21A"/><circle cx="33" cy="30" r="2.5" fill="#FFC21A"/><circle cx="46" cy="20" r="2.5" fill="#FFC21A"/><rect x="5" y="55" width="50" height="9" rx="4.5" fill="#fff"/>'
+};
 async function cardView(id) {
   const data = await collect(id);
   if (!data) { location.hash = 'trips'; return; }
-  const photos = data.media.filter(m => m.kind === 'photo' || m.thumb).length;
-  const stars = data.media.filter(m => m.star).length;
-  let tpl = 'map', style = mapStyle(), blob = null, url = null, timer = null, busy = 0;
-  view.innerHTML = `<a class="back" href="#trip/${id}">${icon('back')}${esc(data.trip.name)}</a>
+  const t = data.trip;
+  const pc = { ...DEFAULT_PC, style: mapStyle(), ...(t.pc || {}) };
+  pc.show = { ...DEFAULT_PC.show, ...((t.pc || {}).show || {}) };
+  const info = dayInfo(data.cs);
+  let blob = null, url = null, timer = null, busy = 0, panel = null;
+  const save = () => { clearTimeout(save.t); save.t = setTimeout(async () => { const tr = await store.getTrip(id); if (tr) { tr.pc = pc; await store.saveTrip(tr); } }, 400); };
+  view.innerHTML = `<a class="back" href="#trip/${id}">${icon('back')}${esc(t.name)}</a>
     <h1 class="h1">足跡明信片</h1>
-    <div class="mapbar"><div class="seg" role="group" aria-label="版型"><button data-tpl="map" class="on">地圖為主</button><button data-tpl="photo">照片為主</button></div>${styleSeg()}</div>
-    <label class="lbl" for="pt">標題</label><input id="pt" class="inp" value="${esc(data.trip.name)}" maxlength="24">
-    <label class="lbl" for="pq">孩子的一句話（可不填）</label><input id="pq" class="inp" placeholder="例如：今天的米線最好吃！" maxlength="30">
-    <p class="muted sm">${photos ? `會優先用標了星星的照片（目前 ${stars} 張精選）。` : '這趟旅程還沒有照片，明信片會以地圖為主。'}</p>
+    <div class="tplrow" role="group" aria-label="版型">${Object.entries(TEMPLATES).map(([k, n]) => `<button data-tpl="${k}" class="${pc.tpl === k ? 'on' : ''}"><svg viewBox="0 0 60 75" width="60" height="75" aria-hidden="true">${TPL_THUMB[k]}</svg><span>${k} ${n}</span></button>`).join('')}</div>
+    <div class="dayseg" id="pcday"></div>
+    <div class="pcchips" role="group" aria-label="調整">${[['show', '顯示內容'], ['photos', '照片'], ['color', '配色'], ['text', '文字'], ['size', '尺寸']].map(([k, n]) => `<button data-p="${k}">${n}</button>`).join('')}</div>
+    <div id="pcpanel" class="pcpanel" hidden></div>
     <div class="pc-prev"><img id="pimg" alt="明信片預覽"><p id="pinfo" class="muted">產生中…</p></div>
-    <div class="row"><button class="btn main" id="psave">${icon('check')}儲存／分享</button></div>
-    <p class="muted sm">也可以長按上面的圖片，選「加入照片」。</p>`;
+    <div class="row"><button class="btn main" id="psave">${icon('check')}儲存到相簿／分享</button></div>
+    <p class="note sm">按下後在選單裡選「<b>儲存影像</b>」就會存進相簿；也可以長按上面的圖片，選「加入照片」。</p>`;
   const gen = async () => {
     const my = ++busy;
     $('#pinfo').textContent = '產生中…';
     try {
-      const cv = await renderPostcard(data, { template: tpl, style, title: $('#pt').value, quote: $('#pq').value });
+      const cv = await renderPostcard(data, pc);
       if (my !== busy) return;
       blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.92));
       if (url) URL.revokeObjectURL(url);
@@ -568,13 +577,63 @@ async function cardView(id) {
       $('#pimg').src = url; $('#pinfo').textContent = '';
     } catch (e) { console.error(e); $('#pinfo').textContent = '產生失敗：' + e.message; }
   };
-  const later = () => { clearTimeout(timer); timer = setTimeout(gen, 450); };
-  view.querySelectorAll('[data-tpl]').forEach(b => b.onclick = () => { tpl = b.dataset.tpl; view.querySelectorAll('[data-tpl]').forEach(x => x.classList.toggle('on', x === b)); gen(); });
-  view.querySelectorAll('[data-style]').forEach(b => b.onclick = () => { style = b.dataset.style; setSetting('mapStyle', style); view.querySelectorAll('[data-style]').forEach(x => x.classList.toggle('on', x === b)); gen(); });
-  $('#pt').oninput = later; $('#pq').oninput = later;
+  const changed = (delay = 0) => { save(); clearTimeout(timer); timer = setTimeout(gen, delay); };
+  const drawDays = () => {
+    const el = $('#pcday');
+    if (pc.tpl !== 'C' || info.days.length < 1) { el.innerHTML = ''; el.hidden = true; return; }
+    el.hidden = false;
+    el.innerHTML = info.days.map((d, k) => { const [, m, dd] = d.split('-'); return `<button data-pd="${k}" class="${pc.day === k ? 'on' : ''}">第 ${k + 1} 天 <small>${m}/${dd}</small></button>`; }).join('');
+    el.querySelectorAll('[data-pd]').forEach(b => b.onclick = () => { pc.day = +b.dataset.pd; drawDays(); changed(); });
+  };
+  drawDays();
+  view.querySelectorAll('[data-tpl]').forEach(b => b.onclick = () => {
+    pc.tpl = b.dataset.tpl;
+    view.querySelectorAll('[data-tpl]').forEach(x => x.classList.toggle('on', x === b));
+    drawDays(); if (panel === 'show') openPanel('show', true); changed();
+  });
+  const sw = (k, v) => `<button data-sw="${k}" class="${pc.show[k] ? 'on' : ''}" aria-pressed="${pc.show[k] ? 'true' : 'false'}">${icon('check')}${v}</button>`;
+  const openPanel = async (k, keep) => {
+    const el = $('#pcpanel');
+    if (panel === k && !keep) { panel = null; el.hidden = true; view.querySelectorAll('[data-p]').forEach(x => x.classList.remove('on')); return; }
+    panel = k; el.hidden = false;
+    view.querySelectorAll('[data-p]').forEach(x => x.classList.toggle('on', x.dataset.p === k));
+    if (k === 'show') {
+      const opts = pc.tpl === 'D' ? [['stats', '章數'], ['quote', '一句話']] : pc.tpl === 'C' ? [['photos', '每站照片'], ['quote', '一句話']] : pc.tpl === 'B' ? [['photos', '照片'], ['list', '行程清單'], ['stats', '旅程數字'], ['quote', '一句話']] : [['list', '行程清單'], ['stats', '旅程數字'], ['photos', '照片'], ['quote', '一句話']];
+      el.innerHTML = `<div class="pcsw">${opts.map(([a, b]) => sw(a, b)).join('')}</div>${pc.show.quote && !pc.quote ? '<p class="muted sm">一句話要在「文字」裡填寫。</p>' : ''}`;
+      el.querySelectorAll('[data-sw]').forEach(b => b.onclick = () => { pc.show[b.dataset.sw] = !pc.show[b.dataset.sw]; openPanel('show', true); changed(); });
+    } else if (k === 'photos') {
+      const vis = data.media.filter(m => m.thumb || m.kind === 'photo');
+      const chosen = pc.photoIds && pc.photoIds.length ? pc.photoIds : null;
+      el.innerHTML = vis.length ? `<p class="muted sm">最多選 4 張。沒有選的話，會用精選照片。</p><div class="pcphotos">${vis.map(m => { const i = chosen ? chosen.indexOf(m.id) : -1; return `<button data-ph="${m.id}" class="${i >= 0 ? 'on' : ''}"><img src="${ou(m.thumb || m.blob)}" alt="">${i >= 0 ? `<b>${i + 1}</b>` : ''}${m.star ? `<span class="vt-star">${icon('star')}</span>` : ''}</button>`; }).join('')}</div><div class="row"><button class="btn sm" id="phreset">改回用精選照片</button></div>` : '<p class="muted">這趟旅程還沒有照片。</p>';
+      el.querySelectorAll('[data-ph]').forEach(b => b.onclick = () => {
+        const ids = pc.photoIds ? [...pc.photoIds] : [];
+        const i = ids.indexOf(b.dataset.ph);
+        if (i >= 0) ids.splice(i, 1); else if (ids.length >= 4) { toast('最多 4 張'); return; } else ids.push(b.dataset.ph);
+        pc.photoIds = ids.length ? ids : null; openPanel('photos', true); changed();
+      });
+      if ($('#phreset')) $('#phreset').onclick = () => { pc.photoIds = null; openPanel('photos', true); changed(); };
+    } else if (k === 'color') {
+      el.innerHTML = `<p class="lbl" style="margin-top:0">配色</p><div class="pcpal">${Object.entries(PALETTES).map(([key, n]) => `<button data-pal="${key}" class="pal-${key}${pc.palette === key ? ' on' : ''}"><i></i>${n}</button>`).join('')}</div>
+        <p class="lbl">地圖樣式</p><div class="seg"><button data-ms="normal" class="${pc.style === 'normal' ? 'on' : ''}">正常版</button><button data-ms="cute" class="${pc.style === 'cute' ? 'on' : ''}">可愛版</button></div>`;
+      el.querySelectorAll('[data-pal]').forEach(b => b.onclick = () => { pc.palette = b.dataset.pal; openPanel('color', true); changed(); });
+      el.querySelectorAll('[data-ms]').forEach(b => b.onclick = () => { pc.style = b.dataset.ms; openPanel('color', true); changed(); });
+    } else if (k === 'text') {
+      el.innerHTML = `<label class="lbl" for="pt" style="margin-top:0">標題</label><input id="pt" class="inp" maxlength="24" placeholder="${esc(t.name)}" value="${esc(pc.title)}">
+        <label class="lbl" for="ps">副標題（可不填）</label><input id="ps" class="inp" maxlength="24" placeholder="例如：全家第一次去雲南" value="${esc(pc.subtitle)}">
+        <label class="lbl" for="pq">一句話（可不填）</label><input id="pq" class="inp" maxlength="30" placeholder="例如：今天的米線最好吃！" value="${esc(pc.quote)}">`;
+      $('#pt').oninput = e => { pc.title = e.target.value; changed(500); };
+      $('#ps').oninput = e => { pc.subtitle = e.target.value; changed(500); };
+      $('#pq').oninput = e => { pc.quote = e.target.value; if (e.target.value) pc.show.quote = true; changed(500); };
+    } else if (k === 'size') {
+      const names = { '4:5': '4:5 貼文', '9:16': '9:16 限時動態', '1:1': '1:1 正方形' };
+      el.innerHTML = `<div class="seg">${Object.keys(SIZES).map(z => `<button data-sz="${z}" class="${pc.size === z ? 'on' : ''}">${names[z]}</button>`).join('')}</div>`;
+      el.querySelectorAll('[data-sz]').forEach(b => b.onclick = () => { pc.size = b.dataset.sz; openPanel('size', true); changed(); });
+    }
+  };
+  view.querySelectorAll('[data-p]').forEach(b => b.onclick = () => openPanel(b.dataset.p));
   $('#psave').onclick = async () => {
     if (!blob) return;
-    const file = new File([blob], `蜂采明信片-${data.trip.name}.jpg`, { type: 'image/jpeg' });
+    const file = new File([blob], `fengcai-postcard-${new Date().toISOString().slice(0, 10)}.jpg`, { type: 'image/jpeg' });
     try {
       if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file] });
       else { const a = document.createElement('a'); a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); }

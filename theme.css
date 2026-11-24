@@ -70,6 +70,12 @@
   --g-shell:#FFC1CF;
   --g-car:#4A90E2;
 
+  /* 足跡明信片配色：bg 底色、ink 文字、soft 次要文字、accent 重點色、card 卡片底、chip 時間軸線 */
+  --pc-honey-bg:#FFF8E7; --pc-honey-ink:#2B1B0A; --pc-honey-soft:#7A6247; --pc-honey-accent:#D98A00; --pc-honey-card:#FFFFFF; --pc-honey-chip:#F3E2B3;
+  --pc-sakura-bg:#FFF0F4; --pc-sakura-ink:#3A1A24; --pc-sakura-soft:#8A5A68; --pc-sakura-accent:#E8577E; --pc-sakura-card:#FFFFFF; --pc-sakura-chip:#F8CFDB;
+  --pc-mint-bg:#EEF8F1; --pc-mint-ink:#13332A; --pc-mint-soft:#4F7466; --pc-mint-accent:#2E9E6E; --pc-mint-card:#FFFFFF; --pc-mint-chip:#CBE9D6;
+  --pc-night-bg:#1E2440; --pc-night-ink:#F6F1E3; --pc-night-soft:#B9BDD6; --pc-night-accent:#FFC94A; --pc-night-card:#2C3458; --pc-night-chip:#3A4370;
+
   /* 兒童頁面 */
   --kid-bg:#FFD23F;
   --kid-ink:#2B1B0A;
