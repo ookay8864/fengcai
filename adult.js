@@ -1,7 +1,7 @@
 // 蜂采 大人頁面
 import { CONFIG, getSetting, setSetting } from './config.js';
 import { store, ensureActiveTrip, getActiveId, setActiveId, askPersist, isKid, isAdult, findMergeTarget, getMode, startTrip, resumeTrip, endTrip, isDaily, moveDaysToTrip } from './store.js';
-import { getPosition, peekPosition, nearby, badgeOf, BADGES, shortType, isDemo, amapLink, testAMap } from './geo.js';
+import { getPosition, peekPosition, nearby, searchPlaces, badgeOf, BADGES, shortType, isDemo, demoOff, amapLink, testAMap } from './geo.js';
 import { compressImage, videoThumb, startRecorder, blobDims } from './media.js';
 import { mountMap, gardenSVG, dayInfo, defaultDay, markerSVG, markerNumSVG, whoText } from './map.js';
 import { allThemes, getTheme, themeIcon, itemIcon, ITEMS, GROUNDS, listCustom, saveCustom, deleteCustom } from './themes.js';
@@ -67,6 +67,10 @@ function cardHTML({ c, m }) {
 }
 const topbar = () => `<header class="top"><img src="./logo.svg" class="logo" alt=""><div><h1>蜂采</h1><p class="sub">飛到哪，甜到哪</p></div></header>`;
 
+// 模擬模式開著時，首頁和地圖上方都會提醒，一鍵就能關
+const demoBar = () => (isDemo() ? `<div class="demobar">${icon('bee')}<span><b>模擬模式開著</b>打卡位置會換成雲南的示範地點</span><button class="btn sm" id="demooff">關閉</button></div>` : '');
+function bindDemoBar() { const b = $('#demooff'); if (b) b.onclick = () => { demoOff(); toast('已關閉模擬模式，之後打卡用你真正的位置'); rerender(); }; }
+
 // ---------- 首頁 ----------
 async function home() {
   const t = await ensureActiveTrip();
@@ -75,7 +79,7 @@ async function home() {
   const empty = meta.filter(x => !x.m.length).length;
   const recent = meta.slice(-5).reverse();
   view.innerHTML = `${topbar()}
-    ${modeBar(t)}
+    ${demoBar()}${modeBar(t)}
     <section class="hero">
       <button class="hexbtn" id="go">${icon('bee', 'big')}<span>打卡這裡</span></button>
       <p class="hint">${isDemo() ? '模擬模式：位置會依序換成雲南的示範地點' : '碰一下大人吊飾，或按上面的按鈕'}</p>
@@ -87,7 +91,7 @@ async function home() {
     <h2 class="h2">最近打卡</h2>
     ${recent.length ? `<div class="cards">${recent.map(cardHTML).join('')}</div>` : '<p class="empty">還沒有打卡。出門玩的時候碰一下吊飾，第一朵花就會開在這裡。</p>'}`;
   $('#go').onclick = startCheckin;
-  bindModeBar();
+  bindModeBar(); bindDemoBar();
 }
 
 // 日常／旅行中 的滑動開關：左＝旅行、右＝日常
@@ -224,23 +228,52 @@ async function startCheckin() {
   pickPlace(pos, list);
 }
 
+// 輸入兩個字以上，自動用高德找地點；點一筆就用那個地點的準確位置
+function bindPlaceSearch(input, box, near, onChoose, onType) {
+  let tm = null, seq = 0;
+  input.addEventListener('input', () => {
+    onType && onType();
+    const kw = input.value.trim();
+    clearTimeout(tm);
+    if (kw.length < 2) { box.innerHTML = ''; return; }
+    box.innerHTML = `<p class="sug-msg">搜尋中…</p>`;
+    tm = setTimeout(async () => {
+      const my = ++seq;
+      let list = [];
+      try { list = await searchPlaces(kw, near); } catch (e) {}
+      if (my !== seq) return;
+      box.innerHTML = list.length
+        ? list.map((p, i) => `<button type="button" class="sug" data-i="${i}"><span class="pl-ic">${icon(BADGES[badgeOf(p.type)].icon)}</span><span class="pl-t">${esc(p.name)}<small>${esc(p.address || shortType(p.type))}${p.dist != null ? ` · ${p.dist < 1000 ? p.dist + ' 公尺' : (p.dist / 1000).toFixed(1) + ' 公里'}` : ''}</small></span></button>`).join('')
+        : `<p class="sug-msg">${getSetting('amapKey') || isDemo() ? '找不到符合的地點，可以直接用你打的名字打卡。' : '還沒設定高德金鑰，沒辦法搜尋；可以直接用你打的名字打卡。'}</p>`;
+      box.querySelectorAll('.sug').forEach(b => b.onclick = () => { const p = list[+b.dataset.i]; input.value = p.name; box.innerHTML = ''; onChoose(p); });
+    }, 350);
+  });
+}
+
 function pickPlace(pos, list) {
-  const L = list.slice(0, 8);
+  const L = list.slice(0, 15);
   const noKey = !getSetting('amapKey') && !isDemo();
+  let chosen = null;
   openSheet(`<h2 class="h2">你在哪裡？</h2>
-    ${pos.acc ? `<p class="muted">定位誤差約 ${pos.acc} 公尺${isDemo() ? '（模擬）' : ''}</p>` : ''}
+    <input id="manual" class="inp" placeholder="輸入地點名稱搜尋，例如：寶安圖書館" autocomplete="off" enterkeyhint="search">
+    <div class="sugs" id="sugs"></div>
+    <p class="chosen" id="chosen" hidden></p>
+    <p class="lbl" style="margin-top:14px">附近的地點${pos.acc ? `<small class="muted">　定位誤差約 ${pos.acc} 公尺${isDemo() ? '（模擬）' : ''}</small>` : ''}</p>
     ${L.length ? `<div class="places">${L.map((p, i) => `<label class="place"><input type="radio" name="pl" value="${i}" ${i === 0 ? 'checked' : ''}><span class="pl-ic">${icon(BADGES[badgeOf(p.type)].icon)}</span><span class="pl-t">${esc(p.name)}<small>${esc(shortType(p.type))}${p.dist ? ` · ${p.dist} 公尺` : ''}</small></span></label>`).join('')}</div>`
-      : `<p class="note">${noKey && pos.lat != null ? '還沒設定高德地圖金鑰，所以沒有附近地點清單（可到「設定」填寫）。' : '附近找不到地點資料。'}請直接輸入地點名稱。</p>`}
-    <label class="lbl" for="manual">${L.length ? '都不是？自己輸入' : '地點名稱'}</label>
-    <input id="manual" class="inp" placeholder="例如：大理古城南門" autocomplete="off">
-    <div class="row"><button class="btn main" id="ok">${icon('check')}確認打卡</button>${pos.lat != null ? '<button class="btn" id="relo">重新定位</button>' : ''}</div>`);
+      : `<p class="note">${noKey && pos.lat != null ? '還沒設定高德地圖金鑰，所以沒有附近地點清單（可到「設定」填寫）。' : '附近找不到地點資料。'}請在上面輸入地點名稱。</p>`}
+    <div class="row sheet-act"><button class="btn main" id="ok">${icon('check')}確認打卡</button>${pos.lat != null ? '<button class="btn" id="relo">重新定位</button>' : ''}</div>`);
   if ($('#relo')) $('#relo').onclick = startCheckin;
-  $('#manual').oninput = e => { if (e.target.value.trim()) sb.querySelectorAll('input[name=pl]').forEach(r => { r.checked = false; }); };
+  const showChosen = () => { const el = $('#chosen'); el.hidden = !chosen; if (chosen) el.innerHTML = `${icon('check')}已選：<b>${esc(chosen.name)}</b>${chosen.address ? `<small>${esc(chosen.address)}</small>` : ''}`; };
+  bindPlaceSearch($('#manual'), $('#sugs'), pos, p => { chosen = p; sb.querySelectorAll('input[name=pl]').forEach(x => { x.checked = false; }); showChosen(); },
+    () => { chosen = null; showChosen(); if ($('#manual').value.trim()) sb.querySelectorAll('input[name=pl]').forEach(x => { x.checked = false; }); });
+  sb.querySelectorAll('input[name=pl]').forEach(x => x.addEventListener('change', () => { chosen = null; $('#manual').value = ''; $('#sugs').innerHTML = ''; showChosen(); }));
   $('#ok').onclick = async () => {
     const man = $('#manual').value.trim();
     const sel = sb.querySelector('input[name=pl]:checked');
-    const p = man ? { name: man, type: '', id: '' } : sel ? L[+sel.value] : null;
+    const p = chosen && chosen.name === man ? chosen : man ? { name: man, type: '', id: '' } : sel ? L[+sel.value] : null;
     if (!p) { toast('請選一個地點，或輸入名稱'); return; }
+    // 從搜尋選的地點：用那個地點的準確位置
+    if (p === chosen && chosen.lat != null) pos = { lat: chosen.lat, lng: chosen.lng, acc: 0 };
     const t = await ensureActiveTrip();
     // 孩子剛在這裡蓋過章：合成同一站
     const merge = await findMergeTarget(t.id, p, pos, 'adult');
@@ -384,15 +417,32 @@ async function trips() {
   }));
   if (!calYM) { const d = new Date(); calYM = [d.getFullYear(), d.getMonth()]; }
   const curTrip = mode === 'trip' && nodes.find(n => n.t.id === act && !isDaily(n.t));
-  view.innerHTML = `${topbar()}
-    <div class="row between"><h2 class="h2" style="margin:10px 0">我的旅行包</h2>${curTrip ? `<a class="tag on" href="#trip/${act}">旅行中</a>` : `<button class="btn main sm" id="new">${icon('plus')}開始旅行</button>`}</div>
+  // 時間軸：旅行包一項（放在出發那天）；日常每天一項；依月份分段，新的在上面
+  const entries = [];
+  nodes.forEach(n => {
+    if (!isDaily(n.t)) { entries.push({ kind: 'trip', ts: n.cs.length ? n.a : n.t.createdAt, n }); return; }
+    const byDay = {};
+    n.cs.forEach(c => { const k = dayKey(c.ts); (byDay[k] = byDay[k] || []).push(c); });
+    Object.entries(byDay).forEach(([k, cs]) => entries.push({ kind: 'day', ts: cs[0].ts, k, cs, n }));
+  });
+  entries.sort((p, q) => q.ts - p.ts);
+  const months = [];
+  entries.forEach(e => { const d = new Date(e.ts), mk = `${d.getFullYear()}-${d.getMonth()}`; let m = months[months.length - 1]; if (!m || m.mk !== mk) months.push(m = { mk, y: d.getFullYear(), m: d.getMonth(), items: [] }); m.items.push(e); });
+  const dailyOf = (y, m) => nodes.find(n => isDaily(n.t) && n.t.id === `daily-${y}-${String(m + 1).padStart(2, '0')}`);
+  const tripCount = entries.filter(e => e.kind === 'trip' && e.n.cs.length).length;
+  view.innerHTML = `
+    <div class="row between" style="margin-top:4px"><h1 class="h1" style="margin:0">我的旅行包</h1>${curTrip ? `<a class="tag on" href="#trip/${act}">旅行中</a>` : `<button class="btn main sm" id="new">${icon('plus')}開始旅行</button>`}</div>
     <section class="calbox">
       <div class="calhead"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="選擇年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></div>
       <div class="calgrid wk">${WKS.map(w => `<span>${w}</span>`).join('')}</div>
       <div class="calgrid" id="calgrid"></div>
       <div class="callegend"><span><i class="lg-fl">${FLOWER_BG}</i>旅行</span><span><i class="lg-dot"></i>日常</span><button class="linkbtn" id="caltoday">回到本月</button></div>
     </section>
-    ${nodes.length ? `<div class="tline">${nodes.map(n => nodeHTML(n, curTrip && curTrip.t.id === n.t.id)).join('')}</div>` : '<p class="empty">還沒有紀錄。在首頁按「打卡這裡」，或先「開始旅行」。</p>'}`;
+    ${entries.length ? `<div class="tl-top"><h2 class="h2" style="margin:0">時間軸</h2>${tripCount ? `<button class="btn sm" id="expall">${icon('flower')}全部展開</button>` : ''}</div>
+      ${months.map(mo => { const dn = dailyOf(mo.y, mo.m); return `<section class="tl-sec">
+        <div class="tl-sec-h"><h3>${mo.y} 年 ${mo.m + 1} 月</h3>${dn ? `<a class="tl-dl" href="#trip/${dn.t.id}">${mo.m + 1} 月日常 ›</a>` : ''}</div>
+        <div class="tl-rows">${mo.items.map(e => entryHTML(e, curTrip)).join('')}</div></section>`; }).join('')}`
+      : '<p class="empty">還沒有紀錄。在首頁按「打卡這裡」，或先「開始旅行」。</p>'}`;
 
   const drawCal = () => {
     const [y, m] = calYM, first = new Date(y, m, 1).getDay(), n = new Date(y, m + 1, 0).getDate(), today = dayKey(Date.now());
@@ -423,7 +473,11 @@ async function trips() {
     const o = marks[k];
     if (!o) { toast('這天沒有紀錄'); return; }
     const id = o.ids[0], el = view.querySelector(`.tnode[data-node="${id}"]`);
-    if (!el) return;
+    if (!el) {
+      const row = view.querySelector(`.tl-dayrow[data-dk="${k}"]`);
+      if (row) { row.scrollIntoView({ behavior: 'smooth', block: 'center' }); const c = row.querySelector('.tl-daycard'); c.classList.remove('flash'); void c.offsetWidth; c.classList.add('flash'); }
+      return;
+    }
     setOpen(el, true);
     const day = el.querySelector(`.tn-day[data-dk="${k}"]`) || el;
     day.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -437,11 +491,16 @@ async function trips() {
   };
   view.querySelectorAll('.tn-head').forEach(b => b.onclick = () => { const el = b.closest('.tnode'); setOpen(el, !el.classList.contains('open')); });
   if ($('#new')) $('#new').onclick = async () => { await goTrip(); rerender(); };
+  const syncExp = () => { const b = $('#expall'); if (!b) return; const ns = [...view.querySelectorAll('.tnode')].filter(e => e.querySelector('.tn-pc')); const allOpen = ns.length && ns.every(e => e.classList.contains('open')); b.innerHTML = allOpen ? `${icon('back', 'up')}全部收起` : `${icon('flower')}全部展開`; b.dataset.all = allOpen ? '1' : ''; };
+  if ($('#expall')) $('#expall').onclick = () => { const open = !$('#expall').dataset.all; view.querySelectorAll('.tnode').forEach(e => { if (e.querySelector('.tn-pc') || !open) setOpen(e, open); }); syncExp(); };
+  view.querySelectorAll('.tn-head').forEach(b => b.addEventListener('click', syncExp));
+  syncExp();
   drawCal();
   view.querySelectorAll('.tnode.open .tn-pc').forEach(el => fillPostcard(el, el.dataset.pc));
   // 封面小圖：每包第一張照片
   for (const n of nodes) {
     const img = view.querySelector(`.tnode[data-node="${n.t.id}"] .tn-cover`);
+    if (!img) continue;
     for (const c of n.cs) {
       const m = (await store.listMedia(c.id)).find(x => x.kind !== 'audio' && (x.thumb || x.kind === 'photo'));
       if (m) { img.innerHTML = `<img src="${ou(m.thumb || m.blob)}" alt="">`; break; }
@@ -449,6 +508,12 @@ async function trips() {
   }
 }
 
+function entryHTML(e, curTrip) {
+  const d = new Date(e.ts), date = `<div class="tl-date"><b>${d.getDate()}</b><span>週${'日一二三四五六'[d.getDay()]}</span></div>`;
+  if (e.kind === 'trip') return `<div class="tl-row">${date}${nodeHTML(e.n, curTrip && curTrip.t.id === e.n.t.id)}</div>`;
+  return `<div class="tl-row tl-dayrow" data-dk="${e.k}">${date}<div class="tl-daycard"><p class="tl-dc-h">${icon('flower')}日常 · ${e.cs.length} 站</p>
+    ${e.cs.map((c, i) => `<a class="tn-stop" href="#c/${c.id}"><svg width="28" height="28" viewBox="-24 -24 48 48" aria-hidden="true">${markerSVG(0, 0, c, i + 1, 1.3, '', null, 'center')}</svg><span class="tn-tm">${fmtTime(c.ts)}</span><b>${esc(c.placeName.replace(/（模擬）/g, ''))}</b></a>`).join('')}</div></div>`;
+}
 function nodeHTML(n, travelling) {
   const daily = isDaily(n.t), open = openNodes.has(n.t.id) || travelling && !openNodes.size;
   if (open) openNodes.add(n.t.id);
@@ -590,12 +655,12 @@ async function mapView(id) {
     all.sort((p, q) => p.ts - q.ts);
     const packs = ts.filter(t => !isDaily(t)).length, months = ts.filter(t => isDaily(t)).length;
     view.innerHTML = `<div class="row between"><h1 class="h1">採蜜地圖</h1><span class="muted sm">${all.length} 個地點</span></div>
-      ${scopeSeg}
+      ${demoBar()}${scopeSeg}
       <div class="mapbar">${styleSeg()}</div>
       <div id="mapbox"></div>
       <p class="muted sm" style="margin:10px 2px 0">所有旅行和日常的打卡都在這裡${all.length ? `：${packs} 趟旅行、${months} 個月的日常` : ''}。點一朵花，可以看那次打卡。</p>
       ${mapLegend()}${keyNote}`;
-    bindScope();
+    bindScope(); bindDemoBar();
     curMap = await mountMap($('#mapbox'), all, { style: mapStyle(), height: h, seed: 'all-footprints', day: null, noPills: true, wantMe: true, onPick: c => { location.hash = `c/${c.id}`; } });
     const ctl = curMap;
     view.querySelectorAll('[data-style]').forEach(b => b.onclick = () => { setSetting('mapStyle', b.dataset.style); view.querySelectorAll('[data-style]').forEach(x => x.classList.toggle('on', x === b)); ctl.setStyle(b.dataset.style); });
@@ -607,7 +672,7 @@ async function mapView(id) {
   if (!t) { location.hash = 'map'; return; }
   const cs = await store.listCheckins(t.id);
   view.innerHTML = `<div class="row between"><h1 class="h1">採蜜地圖</h1><span class="muted sm">${cs.length} 個地點</span></div>
-    ${scopeSeg}
+    ${demoBar()}${scopeSeg}
     <button class="chip" id="tripchip" style="margin-top:8px">${icon(isDaily(t) ? 'flower' : 'trip')}<span><b>${esc(t.name)}</b></span><em>換旅程</em></button>
     <div class="mapbar">${styleSeg()}<button class="btn main sm" id="conn">${icon('flower')}連起來</button></div>
     <div class="dayseg" id="daytabs"></div>
@@ -615,7 +680,7 @@ async function mapView(id) {
     <div class="daylist" id="daylist"></div>
     ${mapLegend()}${keyNote}`;
   $('#tripchip').onclick = () => { location.hash = 'trips'; };
-  bindScope();
+  bindScope(); bindDemoBar();
   await attachMap($('#mapbox'), cs, h, t.id, isDaily(t), { wantMe: true });
   showMe();
 }
@@ -1006,6 +1071,42 @@ async function trip(id) {
   };
 }
 
+// ---------- 打卡之後修改地點：搜尋正確的地點（名稱＋位置一起改），或只改名字 ----------
+async function editPlaceSheet(c) {
+  const near = c.lat != null ? { lat: c.lat, lng: c.lng } : null;
+  let chosen = null;
+  openSheet(`<h2 class="h2">修改地點</h2>
+    <p class="muted" style="margin-top:0">現在：<b>${esc(c.placeName)}</b></p>
+    <input id="ep" class="inp" placeholder="輸入正確的地點名稱搜尋" autocomplete="off" enterkeyhint="search" value="">
+    <div class="sugs" id="esugs"></div>
+    <p class="chosen" id="echosen" hidden></p>
+    <div id="enear"></div>
+    <div class="row sheet-act"><button class="btn main" id="eok">${icon('check')}改成這個地點</button><button class="btn" id="ename">只改名字</button></div>
+    <p class="muted sm">「改成這個地點」會把名稱和地圖上的位置一起更正；「只改名字」位置不變。</p>`);
+  const show = () => { const el = $('#echosen'); el.hidden = !chosen; if (chosen) el.innerHTML = `${icon('check')}已選：<b>${esc(chosen.name)}</b>${chosen.address ? `<small>${esc(chosen.address)}</small>` : ''}`; };
+  bindPlaceSearch($('#ep'), $('#esugs'), near, p => { chosen = p; show(); }, () => { chosen = null; show(); });
+  // 原本位置附近的地點，也可以直接點
+  if (near) nearby(near.lat, near.lng).then(list => {
+    const L = list.slice(0, 10), box = $('#enear');
+    if (!box || !L.length) return;
+    box.innerHTML = `<p class="lbl" style="margin-top:14px">原本位置附近</p><div class="places">${L.map((p, i) => `<button type="button" class="sug" data-n="${i}"><span class="pl-ic">${icon(BADGES[badgeOf(p.type)].icon)}</span><span class="pl-t">${esc(p.name)}<small>${esc(shortType(p.type))}${p.dist ? ` · ${p.dist} 公尺` : ''}</small></span></button>`).join('')}</div>`;
+    box.querySelectorAll('[data-n]').forEach(b => b.onclick = () => { const p = L[+b.dataset.n]; chosen = { ...p, lat: null, lng: null }; $('#ep').value = p.name; $('#esugs').innerHTML = ''; show(); });
+  }).catch(() => {});
+  $('#eok').onclick = async () => {
+    const name = $('#ep').value.trim();
+    if (!chosen || chosen.name !== name) { toast(name ? '請從清單點選一個地點；只想改名字請按「只改名字」' : '請先輸入或點選一個地點'); return; }
+    Object.assign(c, { placeName: chosen.name, placeType: chosen.type || '', poiId: chosen.id || '', confirmed: true });
+    if (chosen.lat != null) Object.assign(c, { lat: chosen.lat, lng: chosen.lng, acc: 0 });
+    await store.saveCheckin(c); toast('地點已更正'); closeSheet();
+  };
+  $('#ename').onclick = async () => {
+    const name = $('#ep').value.trim() || (await inputDlg('地點名稱', c.placeName));
+    if (!name) return;
+    c.placeName = name; c.confirmed = true;
+    await store.saveCheckin(c); toast('名字已更新'); closeSheet();
+  };
+}
+
 // ---------- 單一打卡點 ----------
 async function checkin(id) {
   const c = await store.getCheckin(id);
@@ -1017,8 +1118,8 @@ async function checkin(id) {
   const pending = isKid(c) && !c.confirmed;
   view.innerHTML = `<a class="back" href="#trip/${c.tripId}">${icon('back')}${esc(t?.name || '旅行包')}</a>
     <div class="detail-head"><div class="card-ic lg">${icon(b.icon)}</div><div><h1 class="h1">${esc(c.placeName)}</h1><p class="muted">${fmtDate(c.ts)} ${fmtTime(c.ts)}${c.acc ? ` · 誤差約 ${c.acc} 公尺` : ''}</p>${isKid(c) && isAdult(c) ? '<span class="tag kid">孩子＋大人一起打卡</span>' : ''}</div></div>
-    ${pending ? `<div class="kidbox">${icon('honey')}<div><b>這是孩子蓋的章（${esc(b.name)}）</b><p>系統自動選了最近的地點，請確認是否正確。</p><div class="row"><button class="btn main sm" id="conf">${icon('check')}地點正確</button><button class="btn sm" id="ren">改地點名稱</button></div></div></div>` : ''}
-    <div class="row">${pending ? '' : '<button class="btn sm" id="ren">改地點名稱</button>'}<button class="btn sm danger" id="deltop">${icon('trash')}刪除這次打卡</button>${c.lat != null ? `<a class="btn sm" href="${amapLink(c.lat, c.lng, c.placeName)}" target="_blank" rel="noopener">${icon('map')}在高德地圖開啟</a>` : ''}</div>
+    ${pending ? `<div class="kidbox">${icon('honey')}<div><b>這是孩子蓋的章（${esc(b.name)}）</b><p>系統自動選了最近的地點，請確認是否正確。</p><div class="row"><button class="btn main sm" id="conf">${icon('check')}地點正確</button><button class="btn sm" id="ren">${icon('pin')}修改地點</button></div></div></div>` : ''}
+    <div class="row">${pending ? '' : `<button class="btn sm" id="ren">${icon('pin')}修改地點</button>`}${c.lat != null ? `<a class="btn sm" href="${amapLink(c.lat, c.lng, c.placeName)}" target="_blank" rel="noopener">${icon('map')}在高德地圖開啟</a>` : ''}</div>
     <h2 class="h2">照片與影片 <small>${vis.length}/${MAX}</small></h2>
     <div class="grid">
       ${vis.map(x => `<div class="tile${x.star ? ' star' : ''}"><button class="tile-v" data-v="${x.id}" aria-label="查看">${x.thumb ? `<img src="${ou(x.thumb)}" alt="">` : `<span class="vph">${icon('play')}</span>`}${x.kind === 'video' ? `<span class="vbadge">${icon('play')}</span>` : ''}</button><button class="tile-s" data-s="${x.id}" aria-pressed="${x.star ? 'true' : 'false'}" aria-label="精選"><span class="star-badge">${icon('star')}</span></button>${x.focus ? `<i class="focus-dot" style="left:${(x.focus.x * 100).toFixed(1)}%;top:${(x.focus.y * 100).toFixed(1)}%"></i>` : ''}</div>`).join('')}
@@ -1032,7 +1133,7 @@ async function checkin(id) {
     <textarea id="note" class="inp" rows="3" placeholder="今天發生了什麼好玩的事？">${esc(c.note || '')}</textarea>
     <div class="row"><button class="btn danger" id="del">${icon('trash')}刪除這次打卡</button></div>`;
 
-  $('#ren').onclick = async () => { const n = await inputDlg('地點名稱', c.placeName); if (n) { c.placeName = n; c.confirmed = true; await store.saveCheckin(c); toast('已更新'); rerender(); } };
+  $('#ren').onclick = () => editPlaceSheet(c);
   if ($('#conf')) $('#conf').onclick = async () => { c.confirmed = true; await store.saveCheckin(c); toast('已確認'); rerender(); };
   if ($('#f')) $('#f').onchange = async e => { await addFiles(id, e.target.files); rerender(); };
   $('#rec').onclick = () => recordSheet(id);
@@ -1053,7 +1154,7 @@ async function checkin(id) {
     if (!(await confirmDlg(`確定刪除「${c.placeName}」這次打卡？照片、影片和聲音會一起刪除，無法復原。`, '確定刪除', '取消'))) return;
     await store.deleteCheckin(id); toast('已刪除'); location.hash = `trip/${c.tripId}`;
   };
-  $('#del').onclick = delCheckin; $('#deltop').onclick = delCheckin;
+  $('#del').onclick = delCheckin;
 }
 
 // ---------- 照片焦點：點一下要強調的位置 ----------
@@ -1160,7 +1261,8 @@ async function settings() {
   $('#cnew').onclick = async () => { if (await customEditor()) rerender(); };
   view.querySelectorAll('[data-ced]').forEach(b => b.onclick = async () => { const t = listCustom().find(x => x.id === b.dataset.ced); if (t && await customEditor(t)) rerender(); });
   view.querySelectorAll('[data-cdel]').forEach(b => b.onclick = async () => { if (await confirmDlg('刪除這個自訂主題？已經用這個主題的日子會變回預設草地。', '刪除')) { deleteCustom(b.dataset.cdel); rerender(); } });
-  $('#demo').onchange = e => { setSetting('demo', e.target.checked ? '1' : ''); toast(e.target.checked ? '已開啟模擬模式' : '已關閉模擬模式'); };
+  $('#demo').checked = isDemo();
+  $('#demo').onchange = e => { if (e.target.checked) setSetting('demo', '1'); else demoOff(); toast(e.target.checked ? '已開啟模擬模式' : '已關閉模擬模式'); };
   view.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast('已複製'); } catch (e) { toast('無法複製，請長按網址手動複製'); } });
   $('#saveKey').onclick = () => { setSetting('amapKey', $('#ak').value.trim()); setSetting('amapSec', $('#as').value.trim()); toast('已儲存，馬上重新載入'); setTimeout(() => location.reload(), 900); };
   $('#testKey').onclick = async () => {

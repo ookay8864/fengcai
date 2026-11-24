@@ -3,10 +3,10 @@
 // 之後換成雲端儲存、換地圖服務、調整上限，主要改這裡。
 // ==========================================================
 export const CONFIG = {
-  version: '0.8.4',
+  version: '0.9.0',
   storage: 'local',      // 'local'＝存在手機本機；之後做好雲端改成 'cloud'
   map: 'amap',           // 地點搜尋服務：目前是高德；國外版之後可加其他服務
-  nearbyRadius: 400,     // 搜尋附近地點的範圍（公尺）
+  nearbyRadius: 600,     // 搜尋附近地點的範圍（公尺）
   photoMax: 1600,        // 照片壓縮後的最長邊（像素），原圖仍留在 iPhone 相簿
   maxVideoMB: 150,       // 單支影片上限
   maxVisualPerPlace: 9,  // 每個地點最多幾張照片／影片

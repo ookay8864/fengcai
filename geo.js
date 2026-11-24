@@ -6,6 +6,12 @@
 // ==========================================================
 import { CONFIG, getSetting } from './config.js';
 
+export function demoOff() {
+  setSettingSafe('demo', '');
+  const u = new URL(location.href);
+  if (u.searchParams.has('demo')) { u.searchParams.delete('demo'); history.replaceState(null, '', u.pathname + (u.search || '') + u.hash); }
+}
+function setSettingSafe(k, v) { try { if (v) localStorage.setItem('fc-' + k, v); else localStorage.removeItem('fc-' + k); } catch (e) {} }
 export const isDemo = () => new URLSearchParams(location.search).has('demo') || getSetting('demo') === '1';
 
 // ---------- 地點類型 → 兒童徽章 ----------
@@ -56,6 +62,12 @@ export function wgs2gcj(lng, lat) {
   dLng = dLng * 180 / (A / s * Math.cos(rad) * Math.PI);
   return [lng + dLng, lat + dLat];
 }
+// 高德座標（GCJ-02）換回 GPS 座標（WGS-84），誤差約 1 公尺
+export function gcj2wgs(lng, lat) {
+  let wl = lng, wa = lat;
+  for (let i = 0; i < 3; i++) { const [gl, ga] = wgs2gcj(wl, wa); wl -= gl - lng; wa -= ga - lat; }
+  return [wl, wa];
+}
 export function distM(a, b) {
   const R = 6371000, r = Math.PI / 180;
   const dLa = (b.lat - a.lat) * r, dLo = (b.lng - a.lng) * r;
@@ -83,9 +95,9 @@ function demoNearby(lat, lng) {
   return spot.pois.map(([name, type], i) => ({ id: 'demo-' + name, name, type, dist: 15 + i * 60 + Math.round(Math.random() * 30) }));
 }
 
-// 地圖用：看一下現在在哪（不會換模擬地點、可用 1 分鐘內的舊定位）
+// 地圖用：看一下現在在哪（一律真實定位、可用 1 分鐘內的舊定位）
 export function peekPosition() {
-  if (isDemo()) { const i = parseInt(getSetting('demoI', '0'), 10) || 0, p = DEMO[(i + DEMO.length - 1) % DEMO.length]; return Promise.resolve({ lat: p.lat, lng: p.lng, acc: 10 }); }
+  // 藍點一律用真正的定位（模擬模式只影響打卡）
   return new Promise((res, rej) => {
     if (!navigator.geolocation) return rej(new Error('no geo'));
     navigator.geolocation.getCurrentPosition(p => res({ lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy) }), rej, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
@@ -141,6 +153,37 @@ export async function nearby(lat, lng) {
       res(r.poiList.pois.map(p => ({ id: p.id || '', name: p.name || '', type: p.type || '', dist: Math.round(+p.distance || 0) })).filter(p => p.name));
     });
   });
+}
+
+// ---------- 用名字找地點（打卡時輸入兩個字以上） ----------
+// 先找附近 50 公里內，找不到再全國找；回傳的 lat/lng 是 GPS 座標
+export async function searchPlaces(kw, near) {
+  kw = (kw || '').trim();
+  if (kw.length < 2) return [];
+  if (isDemo()) {
+    const out = [];
+    DEMO.forEach(s => s.pois.forEach(([name, type]) => { if (name.includes(kw)) out.push({ id: 'demo-' + name, name, type, address: '雲南大理（模擬）', lat: s.lat, lng: s.lng, dist: near && near.lat != null ? Math.round(distM(near, s)) : null }); }));
+    return out;
+  }
+  const AM = await loadAMap();
+  if (!AM) return [];
+  const conv = p => {
+    const loc = p.location; if (!loc) return null;
+    const [lng, lat] = gcj2wgs(loc.lng ?? loc.getLng(), loc.lat ?? loc.getLat());
+    return { id: p.id || '', name: p.name || '', type: p.type || '', address: [p.cityname, p.adname, typeof p.address === 'string' ? p.address : ''].filter(Boolean).join(''), lat, lng, dist: near && near.lat != null ? Math.round(distM(near, { lat, lng })) : null };
+  };
+  const run = (fn) => new Promise(res => {
+    const tm = setTimeout(() => res([]), 8000);
+    fn((status, r) => { clearTimeout(tm); res(status === 'complete' && r?.poiList?.pois ? r.poiList.pois.map(conv).filter(x => x && x.name) : []); });
+  });
+  const ps = new AM.PlaceSearch({ pageSize: 12, pageIndex: 1, extensions: 'base' });
+  let list = [];
+  if (near && near.lat != null) {
+    const [gl, ga] = wgs2gcj(near.lng, near.lat);
+    list = await run(cb => ps.searchNearBy(kw, [gl, ga], 50000, cb));
+  }
+  if (!list.length) list = await run(cb => ps.search(kw, cb));
+  return list;
 }
 
 // ---------- 高德地圖：檢查設定哪裡有問題 ----------
