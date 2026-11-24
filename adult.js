@@ -9,7 +9,7 @@ import { collect, renderPostcard, DEFAULT_PC, PALETTES, TEMPLATES, SIZES } from 
 import { makeVideo, estimate, canMakeVideo, selectVisuals, layoutItems, stopDuration, voiceLen, isLand, PER_STOP } from './video.js';
 import { TRACKS } from './music.js';
 import { $, esc, toast, confirmDlg, inputDlg, fmtTime, fmtDate, dayKey, uid, icon } from './ui.js';
-import { initCapsule, hiveView, createView, checkDue, capsuleDays } from './capsule.js';
+import { initCapsule, hiveView, createView, checkDue, capsuleDays, memHTML, fillMemThumbs, viewCapsule, openedCapsules, anniversaryToday, dismissAnniversary, yearWord } from './capsule.js';
 
 const view = $('#view'), sheet = $('#sheet'), sb = $('#sheetbody');
 const MAX = CONFIG.maxVisualPerPlace;
@@ -86,7 +86,7 @@ async function home() {
   const empty = meta.filter(x => !x.m.length).length;
   const recent = meta.slice(-5).reverse();
   view.innerHTML = `${topbar()}
-    ${demoBar()}${modeBar(t)}
+    ${demoBar()}${modeBar(t)}<div id="annbox"></div>
     <section class="hero">
       <button class="hexbtn" id="go">${icon('bee', 'big')}<span>打卡這裡</span></button>
       <p class="hint">${isDemo() ? '模擬模式：位置會依序換成雲南的示範地點' : '碰一下大人吊飾，或按上面的按鈕'}</p>
@@ -99,6 +99,13 @@ async function home() {
     ${recent.length ? `<div class="cards">${recent.map(cardHTML).join('')}</div>` : '<p class="empty">還沒有打卡。出門玩的時候碰一下吊飾，第一朵花就會開在這裡。</p>'}`;
   $('#go').onclick = startCheckin;
   bindModeBar(); bindDemoBar();
+  // 回憶日：膠囊打開滿一年、兩年…的那天
+  anniversaryToday().then(ann => {
+    const box = $('#annbox'); if (!ann || !box) return;
+    box.innerHTML = `<div class="anncard"><button class="ann-x" aria-label="今天不再顯示">×</button><p class="ann-t"><i class="cd-cap lg"></i>${yearWord(ann.years)}年前的今天</p><p class="ann-s">你打開了${ann.c.from ? `${esc(ann.c.from)}給你的` : '一顆'}時光膠囊</p><button class="btn sm main" id="annopen">再看一次</button></div>`;
+    $('#annopen').onclick = () => viewCapsule(ann.c.id);
+    box.querySelector('.ann-x').onclick = () => { dismissAnniversary(ann.key); box.innerHTML = ''; };
+  }).catch(() => {});
 }
 
 // 日常／旅行中 的滑動開關：左＝旅行、右＝日常
@@ -436,6 +443,8 @@ async function trips() {
     n.cs.forEach(c => { const k = dayKey(c.ts); (byDay[k] = byDay[k] || []).push(c); });
     Object.entries(byDay).forEach(([k, cs]) => entries.push({ kind: 'day', ts: cs[0].ts, k, cs, n }));
   });
+  const capsOpened = await openedCapsules();
+  capsOpened.forEach(c => entries.push({ kind: 'cap', ts: c.openedAt, c }));
   entries.sort((p, q) => q.ts - p.ts);
   const months = [];
   entries.forEach(e => { const d = new Date(e.ts), mk = `${d.getFullYear()}-${d.getMonth()}`; let m = months[months.length - 1]; if (!m || m.mk !== mk) months.push(m = { mk, y: d.getFullYear(), m: d.getMonth(), items: [] }); m.items.push(e); });
@@ -509,6 +518,8 @@ async function trips() {
   syncExp();
   drawCal();
   view.querySelectorAll('.tnode.open .tn-pc').forEach(el => fillPostcard(el, el.dataset.pc));
+  fillMemThumbs(view, capsOpened);
+  view.querySelectorAll('.tl-capcard [data-cap]').forEach(b => b.onclick = () => viewCapsule(b.dataset.cap));
   // 封面小圖：每包第一張照片
   for (const n of nodes) {
     const img = view.querySelector(`.tnode[data-node="${n.t.id}"] .tn-cover`);
@@ -522,6 +533,7 @@ async function trips() {
 
 function entryHTML(e, curTrip) {
   const d = new Date(e.ts), date = `<div class="tl-date"><b>${d.getDate()}</b><span>週${'日一二三四五六'[d.getDay()]}</span></div>`;
+  if (e.kind === 'cap') return `<div class="tl-row">${date}<div class="tl-capcard"><p class="tl-cap-h"><i class="cd-cap lg"></i>打開了一顆時光膠囊</p>${memHTML(e.c)}</div></div>`;
   if (e.kind === 'trip') return `<div class="tl-row">${date}${nodeHTML(e.n, curTrip && curTrip.t.id === e.n.t.id)}</div>`;
   return `<div class="tl-row tl-dayrow" data-dk="${e.k}">${date}<div class="tl-daycard"><p class="tl-dc-h">${icon('flower')}日常 · ${e.cs.length} 站</p>
     ${e.cs.map((c, i) => `<a class="tn-stop" href="#c/${c.id}"><svg width="28" height="28" viewBox="-24 -24 48 48" aria-hidden="true">${markerSVG(0, 0, c, i + 1, 1.3, '', null, 'center')}</svg><span class="tn-tm">${fmtTime(c.ts)}</span><b>${esc(c.placeName.replace(/（模擬）/g, ''))}</b></a>`).join('')}</div></div>`;

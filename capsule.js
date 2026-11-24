@@ -54,19 +54,17 @@ function hexCell(kind, fill = 0, img = '') {
 export async function hiveView() {
   const caps = await store.listCapsules();
   const sealed = caps.filter(c => !c.opened), opened = caps.filter(c => c.opened).sort((a, b) => b.openedAt - a.openedAt);
-  const cells = [{ kind: 'add' }, ...sealed.map(c => ({ kind: 'sealed', c })), ...opened.map(c => ({ kind: 'open', c }))];
+  const cells = [{ kind: 'add' }, ...sealed.map(c => ({ kind: 'sealed', c }))];
   const rows = []; for (let i = 0; i < cells.length; i += 3) rows.push(cells.slice(i, i + 3));
   C.view.innerHTML = `
     <div class="row between" style="margin-top:4px"><h1 class="h1" style="margin:0">時光膠囊</h1><button class="btn sm" id="recv">${icon('plus')}收到的膠囊</button></div>
     <p class="muted" style="margin:6px 0 4px">每一格都是一顆封起來的膠囊。時間到了，打開蜂采，它就會自己冒出來。</p>
     <div class="hive">${rows.map((row, i) => `<div class="hv-row${i % 2 ? ' odd' : ''}">${row.map(cellHTML).join('')}</div>`).join('')}</div>
+    ${opened.length ? `<h2 class="h2 cap-h">打開過的回憶 <small>${opened.length}</small></h2>
+    <div class="mem-list">${opened.map(memHTML).join('')}</div>` : ''}
     <div class="cap-note">${icon('flower')}<p>膠囊存在這支手機裡。請從主畫面的蜂采圖示打開，並偶爾到「設定」匯出備份；換手機時把備份匯入就能帶走。</p></div>
     <input type="file" id="recvf" accept=".json,application/json,*/*" hidden>`;
-  // 已打開的膠囊：格子裡放第一張照片
-  for (const c of opened) {
-    const ph = (c.media || []).find(m => m.kind === 'photo' || m.thumb);
-    if (ph) { const el = C.view.querySelector(`[data-cap="${c.id}"] .hx-slot`); if (el) el.innerHTML = hexCell('open', 0, C.ou(ph.thumb || ph.blob)); }
-  }
+  fillMemThumbs(C.view, opened);
   C.view.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { location.hash = 'capsule/new'; });
   C.view.querySelectorAll('[data-cap]').forEach(b => b.onclick = async () => {
     const c = caps.find(x => x.id === b.dataset.cap);
@@ -75,6 +73,20 @@ export async function hiveView() {
   $('#recv').onclick = () => $('#recvf').click();
   $('#recvf').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (f) await receive(f); };
 }
+// 打開過的膠囊：一張小卡（小圖、打開日期、誰送的、第一句話）
+export function memHTML(c) {
+  const first = (c.note || '').split('\n')[0];
+  return `<button class="mem" data-cap="${c.id}"><span class="mem-th" data-th="${c.id}">${icon('flower')}</span><span class="mem-t"><b>${esc(fmtYMD(c.openedAt || c.openAt))}打開</b><small>${c.from ? `來自 ${esc(c.from)}・` : ''}${new Date(c.createdAt).getFullYear()} 年封存</small>${first ? `<em>${esc(first.length > 28 ? first.slice(0, 28) + '…' : first)}</em>` : ''}</span></button>`;
+}
+export function fillMemThumbs(root, caps) {
+  for (const c of caps) {
+    const ph = (c.media || []).find(m => m.kind === 'photo' || m.thumb);
+    const el = root.querySelector(`[data-th="${c.id}"]`);
+    if (ph && el) el.innerHTML = `<img src="${C.ou(ph.thumb || ph.blob)}" alt="">`;
+  }
+}
+export async function viewCapsule(id) { const c = await store.getCapsule(id); if (c) await showContent(c, false); }
+
 function cellHTML(x) {
   if (x.kind === 'add') return `<button class="hv-cell" data-add="1" aria-label="埋一顆新的膠囊"><span class="hx-slot">${hexCell('add')}</span><span class="hv-lbl">埋一顆</span></button>`;
   const c = x.c;
@@ -292,14 +304,18 @@ function unseal(c) {
 }
 // 看膠囊的內容（打開那一刻，或之後在蜂巢點已打開的格子）
 function showContent(c, first) {
+  const vis = (c.media || []).filter(m => m.kind === 'photo' || m.kind === 'video');
   return new Promise(res => {
     const ov = C.overlay(`<div class="cap-open">
       <p class="cap-hd">${first ? '時光膠囊打開了' : '時光膠囊'}</p>
       <p class="cap-meta">${esc(fmtYMD(c.createdAt))}封存${c.from ? `・來自 ${esc(c.from)}` : ''}${c.to ? `・${esc(toText(c))}` : ''}</p>
       ${c.note ? `<p class="cap-text">${esc(c.note).replace(/\n/g, '<br>')}</p>` : ''}
       <div class="cap-media">${(c.media || []).map(m => m.kind === 'photo' ? `<img src="${C.ou(m.blob)}" alt="">` : m.kind === 'video' ? `<video src="${C.ou(m.blob)}" controls playsinline ${m.thumb ? `poster="${C.ou(m.thumb)}"` : ''}></video>` : `<div class="cap-audio">${icon('mic')}<audio src="${C.ou(m.blob)}" controls></audio></div>`).join('')}</div>
-      <div class="row"><button class="btn main" id="cok">${first ? '收下' : '關閉'}</button>${first ? '' : '<button class="btn danger" id="cdel2">刪除</button>'}</div></div>`);
+      <div class="row"><button class="btn main" id="cok">${first ? '收下' : '關閉'}</button>${vis.length ? `<button class="btn" id="csave">${icon('check')}存到相簿</button>` : ''}</div>
+      ${first ? '' : '<button class="linkbtn danger-link" id="cdel2">刪除這顆膠囊</button>'}</div>`);
     ov.querySelector('#cok').onclick = () => { ov.remove(); res(); };
+    const sv = ov.querySelector('#csave');
+    if (sv) sv.onclick = () => saveToPhotos(vis);
     const d = ov.querySelector('#cdel2');
     if (d) d.onclick = async () => {
       if (!(await confirmDlg('刪除這顆已打開的膠囊？照片、影片和聲音會一起刪除，無法復原。', '確定刪除', '取消'))) return;
@@ -307,6 +323,33 @@ function showContent(c, first) {
     };
   });
 }
+
+// 把膠囊裡的照片和影片存進 iPhone 相簿（分享選單選「儲存影像」）
+async function saveToPhotos(list) {
+  const files = list.map((m, i) => new File([m.blob], `蜂采膠囊-${i + 1}.${m.kind === 'video' ? (m.mime || '').includes('quicktime') ? 'mov' : 'mp4' : 'jpg'}`, { type: m.mime || (m.kind === 'video' ? 'video/mp4' : 'image/jpeg') }));
+  try {
+    if (navigator.canShare?.({ files })) { await navigator.share({ files }); return; }
+  } catch (e) { if (e.name === 'AbortError') return; }
+  files.forEach(saveFile);
+  toast('已下載，到「檔案」裡可以存到相簿');
+}
+
+// 4. 回憶日：膠囊打開滿 1 年、2 年…的那一天，首頁出現一張小卡
+export async function anniversaryToday() {
+  const now = new Date(), key = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+  if (getSetting('capAnnDone') === key) return null;
+  for (const c of await store.listCapsules()) {
+    if (!c.opened || !c.openedAt) continue;
+    const o = new Date(c.openedAt), years = now.getFullYear() - o.getFullYear();
+    if (years >= 1 && o.getMonth() === now.getMonth() && o.getDate() === now.getDate()) return { c, years, key };
+  }
+  return null;
+}
+export const dismissAnniversary = key => setSetting('capAnnDone', key);
+export const yearWord = n => ['', '一', '兩', '三', '四', '五', '六', '七', '八', '九', '十'][n] || String(n);
+
+// 時間軸用：打開過的膠囊
+export async function openedCapsules() { return (await store.listCapsules()).filter(c => c.opened && c.openedAt); }
 
 // 月曆用：哪些日子有膠囊要打開（只有「顯示日期」的才標）
 export async function capsuleDays() {

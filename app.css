@@ -655,3 +655,24 @@ body.kid{background:var(--kid-bg) var(--pattern);color:var(--kid-ink)}
 /* 孩子頁：給未來的自己 */
 .kfuture{display:flex;align-items:center;justify-content:center;gap:8px;margin:8px auto 0;padding:12px 18px;border-radius:999px;background:var(--card);color:var(--ink);font:800 16px var(--font);text-decoration:none;width:max-content;box-shadow:var(--shadow)}
 .kfuture svg{width:24px;height:24px}
+
+/* ---------- v0.11 打開過的膠囊：回憶清單、時間軸、回憶日 ---------- */
+.cap-h{display:flex;align-items:baseline;gap:6px;margin:22px 0 8px}
+.cap-h small{font-size:13px;color:var(--ink-soft);font-weight:700}
+.mem-list{display:grid;gap:8px}
+.mem{display:flex;align-items:center;gap:12px;width:100%;padding:10px;border:0;border-radius:var(--radius);background:var(--card);box-shadow:var(--shadow);color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+.mem-th{width:56px;height:56px;flex-shrink:0;display:grid;place-items:center;overflow:hidden;background:var(--cap-honey);clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)}
+.mem-th img{width:100%;height:100%;object-fit:cover}
+.mem-th .ic{width:24px;height:24px;color:#fff}
+.mem-t{min-width:0;display:flex;flex-direction:column;gap:2px}
+.mem-t b{font-size:15px}
+.mem-t small{font-size:12.5px;color:var(--ink-soft)}
+.mem-t em{font-style:normal;font-size:13.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl-capcard{flex:1;min-width:0}
+.tl-cap-h{margin:0 0 4px 2px;display:flex;align-items:center;gap:6px;font:800 13px var(--font);color:var(--cap-rim)}
+.danger-link{display:block;margin:10px auto 0;color:#C0392B}
+.anncard{position:relative;margin-top:12px;padding:14px 16px;border-radius:var(--radius);background:var(--cap-wax);color:var(--hive)}
+.ann-t{margin:0;display:flex;align-items:center;gap:6px;font:800 17px var(--font)}
+.ann-t .cd-cap{background:var(--cap-rim)}
+.ann-s{margin:4px 0 10px;font-size:14.5px}
+.ann-x{position:absolute;top:6px;right:8px;border:0;background:none;font-size:22px;line-height:1;color:var(--hive);opacity:.6;cursor:pointer;padding:6px}
