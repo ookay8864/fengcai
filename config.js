@@ -3,7 +3,7 @@
 // 之後換成雲端儲存、換地圖服務、調整上限，主要改這裡。
 // ==========================================================
 export const CONFIG = {
-  version: '0.7.2',
+  version: '0.8.0',
   storage: 'local',      // 'local'＝存在手機本機；之後做好雲端改成 'cloud'
   map: 'amap',           // 地點搜尋服務：目前是高德；國外版之後可加其他服務
   nearbyRadius: 400,     // 搜尋附近地點的範圍（公尺）
@@ -13,7 +13,7 @@ export const CONFIG = {
   kidRecordSec: 10,      // 兒童錄音秒數
   adultRecordSec: 30,    // 大人錄音秒數
   // 高德地圖的底圖樣式：正常版、可愛版（可換成 amap://styles/graffiti 塗鴉風、fresh 草色青等）
-  mapStyles: { normal: 'amap://styles/normal', cute: 'amap://styles/macaron' },
+  mapStyles: { normal: 'amap://styles/normal', cute: 'amap://styles/macaron', night: 'amap://styles/darkblue' },
   kidGardenGoal: 5,      // 兒童花園：每幾個章算「開滿一片」
   // 一鍵短片
   video: {

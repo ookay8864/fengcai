@@ -145,9 +145,23 @@ function scaleBar(s, W, H) {
 
 // ---------- 插畫地圖（大人版：正常／可愛） ----------
 // view: { day: 天的索引或 null（全部）, video: 短片用（全部標號碼、不標天數） }
+// 夜空版：星星（避開標記）與指北針
+function stars(R, W, H, xy) {
+  let g = '';
+  for (let i = 0; i < Math.round(W * H / 2600); i++) {
+    const x = R() * W, y = R() * H;
+    if (xy.some(([px, py]) => Math.abs(px - x) < 22 && Math.abs(py - y) < 22)) continue;
+    const big = R() < 0.12;
+    g += big ? `<path d="M${f1(x)} ${f1(y - 3.2)}L${f1(x + .9)} ${f1(y - .9)}L${f1(x + 3.2)} ${f1(y)}L${f1(x + .9)} ${f1(y + .9)}L${f1(x)} ${f1(y + 3.2)}L${f1(x - .9)} ${f1(y + .9)}L${f1(x - 3.2)} ${f1(y)}L${f1(x - .9)} ${f1(y - .9)}Z" class="m-star"/>`
+      : `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(.5 + R() * .8)}" class="m-star" style="opacity:${f1(.3 + R() * .5)}"/>`;
+  }
+  return g;
+}
+const compass = (W, s, H) => `<g transform="translate(${W - 22} 24)"><path d="M0 -12 L5 4 L0 0 L-5 4 Z" class="m-compass"/><text y="17" class="m-small" text-anchor="middle">北</text></g>${scaleBar(s, W, H)}`;
+
 function svgAdult(pts, info, style, W, H, seed, view = {}) {
   const id = `m${++seq}`;
-  const cute = style === 'cute';
+  const cute = style === 'cute', night = style === 'night';
   const { xy, s } = project(pts, W, H, 42, view.tags ? 36 : cute ? 32 : 28);
   const R = rng(seed);
   const sel = view.day == null ? null : view.day;
@@ -157,11 +171,13 @@ function svgAdult(pts, info, style, W, H, seed, view = {}) {
   const bg = cute
     ? `<defs><linearGradient id="${id}bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--meadow-1)"/><stop offset="1" style="stop-color:var(--meadow-2)"/></linearGradient></defs>
        <rect width="${W}" height="${H}" fill="url(#${id}bg)"/>${decor(R, W, H, xy, 22, ['tree', 'tree', 'bush', 'grass', 'grass', 'dots', 'dots', 'pond', 'hill', 'cloud'])}`
+    : night
+    ? `<rect width="${W}" height="${H}" class="m-bg"/>${stars(R, W, H, xy)}${compass(W, s, H)}`
     : `<defs><pattern id="${id}g" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" class="m-grid"/></pattern></defs>
        <rect width="${W}" height="${H}" class="m-bg"/><rect width="${W}" height="${H}" fill="url(#${id}g)"/>
-       <g transform="translate(${W - 22} 24)"><path d="M0 -12 L5 4 L0 0 L-5 4 Z" class="m-compass"/><text y="17" class="m-small" text-anchor="middle">北</text></g>${scaleBar(s, W, H)}`;
+       ${compass(W, s, H)}`;
   const routeSvg = route ? `<mask id="${id}mk"><path d="${route}" class="route-mask" stroke-width="16"/></mask>
-       <path d="${route}" class="${cute ? 'route-cute' : 'route-normal'}${all ? ' route-soft' : ''}" mask="url(#${id}mk)"/>` : '';
+       <path d="${route}" class="${cute ? 'route-cute' : night ? 'route-normal route-night' : 'route-normal'}${all ? ' route-soft' : ''}" mask="url(#${id}mk)"/>` : '';
   // 地名：只在看某一天時標，放在標記的下、上、右、左，放不下就省略
   const boxes = xy.filter((_, i) => on(i)).map(([x, y]) => [x - 15, y - 15, x + 19, y + 19]);
   const hit = b => boxes.some(o => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]) || b[0] < 2 || b[2] > W - 2 || b[1] < 2 || b[3] > H - 2;
@@ -195,9 +211,10 @@ function svgAdult(pts, info, style, W, H, seed, view = {}) {
   const sc = cute ? 1.2 : 1;
   const mk = i => {
     const c = pts[i], [x, y] = xy[i], faded = !on(i);
-    if (view.tags) return `<g class="pick" data-id="${c.id}">${markerSVG(x, y, c, view.order ? view.order[c.id] : info.num(c), 1.15, '', null, 'center')}${labels[i]}</g>`;
+    const glow = night && !faded ? `<circle cx="${f1(x)}" cy="${f1(y)}" r="${view.tags ? 24 : 20}" class="m-glow"/>` : '';
+    if (view.tags) return `<g class="pick" data-id="${c.id}">${glow}${markerSVG(x, y, c, view.order ? view.order[c.id] : info.num(c), 1.15, '', null, 'center')}${labels[i]}</g>`;
     const n = view.video || (sel != null && !faded) ? info.num(c) : null;
-    return `<g class="pick${faded ? ' faded' : ''}" data-id="${c.id}">${markerSVG(x, y, c, n, sc, !faded && cute ? 'bob' : '')}${labels[i]}</g>`;
+    return `<g class="pick${faded ? ' faded' : ''}" data-id="${c.id}">${glow}${markerSVG(x, y, c, n, sc, !faded && cute ? 'bob' : '')}${labels[i]}</g>`;
   };
   const faded = pts.map((_, i) => (on(i) ? '' : mk(i))).join(''), active = pts.map((_, i) => (on(i) ? mk(i) : '')).join('');
   // 「全部」：每天的區域旁標「第 N 天」
@@ -214,7 +231,7 @@ function svgAdult(pts, info, style, W, H, seed, view = {}) {
     pillBoxes.push([cx, cy]);
     return `<g class="daypill" data-day="${k}"><rect x="${f1(cx - 28)}" y="${f1(cy - 10)}" width="56" height="20" rx="10" class="m-daypill"/><text x="${f1(cx)}" y="${f1(cy)}" dy=".35em" text-anchor="middle" class="m-daytext">第 ${k + 1} 天</text></g>`;
   }).join('') : '';
-  return `<svg viewBox="0 0 ${W} ${H}" class="mapsvg ${cute ? 'cute' : 'normal'}" role="img" aria-label="採蜜地圖，共 ${pts.length} 個地點">
+  return `<svg viewBox="0 0 ${W} ${H}" class="mapsvg ${cute ? 'cute' : night ? 'normal night' : 'normal'}" role="img" aria-label="採蜜地圖，共 ${pts.length} 個地點">
     ${bg}<g class="rt">${routeSvg}</g>${faded}${pills}${active}<g class="bee" transform="translate(-50 -50)">${BEE}</g></svg>`;
 }
 
@@ -281,7 +298,7 @@ async function mountAMap(el, pts, info, opt) {
   if (markers.length) { map.add(markers); paint(); fit(); }
   let line = null, bee = null, raf = 0;
   const clearRoute = () => { cancelAnimationFrame(raf); if (line) map.remove(line); if (bee) map.remove(bee); line = bee = null; };
-  const routeColor = () => (opt.style === 'cute' ? '#FF6F91' : '#D98A00');
+  const routeColor = () => (opt.style === 'cute' ? '#FF6F91' : opt.style === 'night' ? '#E8B84A' : '#D98A00');
   const ctl = {
     kind: 'amap',
     connect(instant = false) {

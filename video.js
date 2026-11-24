@@ -171,7 +171,7 @@ export async function makeVideo(data, opt, ui) {
   const mkOf = c => mkImg[isKid(c) && isAdult(c) ? 'b' : isKid(c) ? 'k' : 'a'];
   L.segs = segments(L.xy);
   const days = [...new Set(data.cs.map(c => dayKey(c.ts)))];
-  const logo = await loadImg('./logo.svg').catch(() => null);
+  const logo = await loadImg('assets/logo.svg').catch(() => null);
 
   // 每一站的素材（沒有定位的站也放，只是蜜蜂不會飛過去）
   ui.onStatus('整理照片和錄音…');
@@ -263,6 +263,7 @@ export async function makeVideo(data, opt, ui) {
       }
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       if (opt.style === 'cute') { ctx.setLineDash([0.1, 10]); ctx.lineWidth = 5; ctx.strokeStyle = P.routeC || P.petal; }
+      else if (opt.style === 'night') { ctx.setLineDash([0.1, 7]); ctx.lineWidth = 3.4; ctx.strokeStyle = P.nightGold || '#E8B84A'; }
       else { ctx.lineWidth = 3.5; ctx.strokeStyle = P.routeN || P.deep; }
       ctx.stroke(); ctx.setLineDash([]);
     }

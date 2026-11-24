@@ -1,6 +1,6 @@
 // 蜂采 大人頁面
 import { CONFIG, getSetting, setSetting } from './config.js';
-import { store, ensureActiveTrip, getActiveId, setActiveId, askPersist, isKid, isAdult, findMergeTarget } from './store.js';
+import { store, ensureActiveTrip, getActiveId, setActiveId, askPersist, isKid, isAdult, findMergeTarget, getMode, startTrip, resumeTrip, endTrip, isDaily, moveDaysToTrip } from './store.js';
 import { getPosition, nearby, badgeOf, BADGES, shortType, isDemo, amapLink } from './geo.js';
 import { compressImage, videoThumb, startRecorder, blobDims } from './media.js';
 import { mountMap, gardenSVG, dayInfo, defaultDay, markerSVG, whoText } from './map.js';
@@ -65,7 +65,7 @@ function cardHTML({ c, m }) {
     ${aud.length ? `<span class="aud">${icon('mic')}${aud.length}</span>` : ''}
   </a>`;
 }
-const topbar = () => `<header class="top"><img src="./logo.svg" class="logo" alt=""><div><h1>蜂采</h1><p class="sub">飛到哪，甜到哪</p></div></header>`;
+const topbar = () => `<header class="top"><img src="assets/logo.svg" class="logo" alt=""><div><h1>蜂采</h1><p class="sub">飛到哪，甜到哪</p></div></header>`;
 
 // ---------- 首頁 ----------
 async function home() {
@@ -75,7 +75,7 @@ async function home() {
   const empty = meta.filter(x => !x.m.length).length;
   const recent = meta.slice(-5).reverse();
   view.innerHTML = `${topbar()}
-    <button class="chip" id="tripchip">${icon('trip')}<span>目前旅程　<b>${esc(t.name)}</b></span><em>切換</em></button>
+    ${modeBar(t)}
     <section class="hero">
       <button class="hexbtn" id="go">${icon('bee', 'big')}<span>打卡這裡</span></button>
       <p class="hint">${isDemo() ? '模擬模式：位置會依序換成雲南的示範地點' : '碰一下大人吊飾，或按上面的按鈕'}</p>
@@ -87,7 +87,28 @@ async function home() {
     <h2 class="h2">最近打卡</h2>
     ${recent.length ? `<div class="cards">${recent.map(cardHTML).join('')}</div>` : '<p class="empty">還沒有打卡。出門玩的時候碰一下吊飾，第一朵花就會開在這裡。</p>'}`;
   $('#go').onclick = startCheckin;
-  $('#tripchip').onclick = () => { location.hash = 'trips'; };
+  bindModeBar();
+}
+
+// 日常／旅行中 的切換列
+function modeBar(t) {
+  return isDaily(t)
+    ? `<div class="modebar"><a class="mb-t" href="#trip/${t.id}">${icon('flower')}<span><b>日常</b><small>打卡會記在「${esc(t.name.replace(/^\d+ 年 /, ''))}」</small></span></a><button class="btn main sm" id="mbstart">${icon('trip')}開始旅行</button></div>`
+    : `<div class="modebar trip"><a class="mb-t" href="#trip/${t.id}">${icon('trip')}<span><small>旅行中</small><b>${esc(t.name)}</b></span></a><button class="btn sm" id="mbend">結束旅行</button></div>`;
+}
+async function askStartTrip() {
+  const name = await inputDlg('開始一趟旅行', '', '例如：雲南 4 日');
+  if (!name) return false;
+  await startTrip(name);
+  toast(`出發！之後的打卡都會放進「${name}」`);
+  return true;
+}
+function bindModeBar() {
+  if ($('#mbstart')) $('#mbstart').onclick = async () => { if (await askStartTrip()) rerender(); };
+  if ($('#mbend')) $('#mbend').onclick = async () => {
+    if (!(await confirmDlg('結束這趟旅行？之後的打卡會回到「日常」。旅行包裡的紀錄都會保留。', '結束旅行', '還沒'))) return;
+    endTrip(); toast('歡迎回家！已回到日常'); rerender();
+  };
 }
 
 // ---------- 打卡流程 ----------
@@ -222,34 +243,167 @@ function recordSheet(cid, max = CONFIG.adultRecordSec) {
   }
 }
 
-// ---------- 旅行包列表 ----------
+// ---------- 旅行包：月曆＋時間軸 ----------
+let calYM = null;            // 月曆正在看的 [年, 月(0-11)]
+const openNodes = new Set(); // 時間軸上拉開的旅行包
+const WKS = ['日', '一', '二', '三', '四', '五', '六'];
+const md = ts => { const d = new Date(ts); return `${d.getMonth() + 1}/${d.getDate()}`; };
+const FLOWER_BG = `<svg class="cd-fl" viewBox="-10 -10 20 20" aria-hidden="true">${[0, 72, 144, 216, 288].map(g => `<circle cx="${(5 * Math.cos((g - 90) * Math.PI / 180)).toFixed(1)}" cy="${(5 * Math.sin((g - 90) * Math.PI / 180)).toFixed(1)}" r="4.7"/>`).join('')}<circle r="3.2" class="cd-fl-c"/></svg>`;
+
 async function trips() {
   const ts = await store.listTrips();
-  const act = getActiveId();
-  const info = await Promise.all(ts.map(async t => { const cs = await store.listCheckins(t.id); return { t, n: cs.length, a: cs[0]?.ts, b: cs[cs.length - 1]?.ts }; }));
+  const mode = getMode(), act = getActiveId();
+  const all = await Promise.all(ts.map(async t => ({ t, cs: await store.listCheckins(t.id) })));
+  const nodes = all.filter(x => !(isDaily(x.t) && !x.cs.length))
+    .map(x => ({ ...x, a: x.cs[0]?.ts ?? x.t.createdAt, b: x.cs[x.cs.length - 1]?.ts ?? x.t.createdAt }))
+    .sort((p, q) => q.b - p.b);
+  // 每一天有什麼：旅行（淡花）、日常（小點）
+  const marks = {};
+  nodes.forEach(n => n.cs.forEach(c => {
+    const k = dayKey(c.ts), o = marks[k] || (marks[k] = { trip: false, daily: false, ids: [] });
+    if (isDaily(n.t)) o.daily = true; else o.trip = true;
+    if (!o.ids.includes(n.t.id)) isDaily(n.t) ? o.ids.push(n.t.id) : o.ids.unshift(n.t.id);
+  }));
+  if (!calYM) { const d = new Date(); calYM = [d.getFullYear(), d.getMonth()]; }
+  const curTrip = mode === 'trip' && nodes.find(n => n.t.id === act && !isDaily(n.t));
   view.innerHTML = `${topbar()}
-    <div class="row between"><h2 class="h2" style="margin:10px 0">我的旅行包</h2><button class="btn main sm" id="new">${icon('plus')}新旅程</button></div>
-    ${info.length ? `<div class="cards">${info.map(({ t, n, a, b }) => `<a class="card" href="#trip/${t.id}"><div class="card-ic">${icon('trip')}</div><div class="card-main"><div class="card-t">${esc(t.name)} ${t.id === act ? '<span class="tag on">目前</span>' : ''}</div><div class="card-s">${n ? `${fmtDate(a)}${dayKey(a) !== dayKey(b) ? ' – ' + fmtDate(b) : ''} · ${n} 個地點` : '還沒有打卡'}</div></div></a>`).join('')}</div>`
-      : '<p class="empty">還沒有旅程。按「新旅程」建立第一個旅行包。</p>'}`;
-  $('#new').onclick = async () => {
-    const name = await inputDlg('新旅程的名字', '', '例如：雲南 4 日');
-    if (!name) return;
-    const t = { id: uid(), name, createdAt: Date.now() };
-    await store.saveTrip(t); setActiveId(t.id);
-    toast('已建立，並設為目前旅程'); rerender();
+    <div class="row between"><h2 class="h2" style="margin:10px 0">我的旅行包</h2>${curTrip ? `<a class="tag on" href="#trip/${act}">旅行中</a>` : `<button class="btn main sm" id="new">${icon('plus')}開始旅行</button>`}</div>
+    <section class="calbox">
+      <div class="calhead"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="選擇年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></div>
+      <div class="calgrid wk">${WKS.map(w => `<span>${w}</span>`).join('')}</div>
+      <div class="calgrid" id="calgrid"></div>
+      <div class="callegend"><span><i class="lg-fl">${FLOWER_BG}</i>旅行</span><span><i class="lg-dot"></i>日常</span><button class="linkbtn" id="caltoday">回到本月</button></div>
+    </section>
+    ${nodes.length ? `<div class="tline">${nodes.map(n => nodeHTML(n, curTrip && curTrip.t.id === n.t.id)).join('')}</div>` : '<p class="empty">還沒有紀錄。在首頁按「打卡這裡」，或先「開始旅行」。</p>'}`;
+
+  const drawCal = () => {
+    const [y, m] = calYM, first = new Date(y, m, 1).getDay(), n = new Date(y, m + 1, 0).getDate(), today = dayKey(Date.now());
+    $('#calym').innerHTML = `${y} 年 ${m + 1} 月${icon('back', 'dn')}`;
+    let h = '<span></span>'.repeat(first);
+    for (let d = 1; d <= n; d++) {
+      const k = `${y}-${m + 1}-${d}`, o = marks[k];
+      h += `<button class="cd${o?.trip ? ' has-trip' : ''}${o?.daily ? ' has-daily' : ''}${k === today ? ' today' : ''}" data-dk="${k}" ${o ? '' : 'tabindex="-1"'}>${o?.trip ? FLOWER_BG : ''}<span>${d}</span></button>`;
+    }
+    $('#calgrid').innerHTML = h;
+    $('#calgrid').querySelectorAll('.cd').forEach(b => b.onclick = () => goDay(b.dataset.dk));
+  };
+  const move = k => { let [y, m] = calYM; m += k; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; } calYM = [y, m]; drawCal(); };
+  view.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => move(+b.dataset.mv));
+  $('#caltoday').onclick = () => { const d = new Date(); calYM = [d.getFullYear(), d.getMonth()]; drawCal(); };
+  $('#calym').onclick = async () => {
+    const years = Object.keys(marks).map(k => +k.split('-')[0]);
+    const pick = await ymPicker(calYM, years, Object.keys(marks));
+    if (pick) { calYM = pick; drawCal(); }
+  };
+  // 左右滑換月份
+  let sx = null;
+  const cb = view.querySelector('.calbox');
+  cb.addEventListener('touchstart', e => { sx = e.touches[0].clientX; }, { passive: true });
+  cb.addEventListener('touchend', e => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx; sx = null; if (Math.abs(dx) > 50) move(dx < 0 ? 1 : -1); });
+  // 點日期：拉開那個旅行包，捲到那一天
+  const goDay = k => {
+    const o = marks[k];
+    if (!o) { toast('這天沒有紀錄'); return; }
+    const id = o.ids[0], el = view.querySelector(`.tnode[data-node="${id}"]`);
+    if (!el) return;
+    setOpen(el, true);
+    const day = el.querySelector(`.tn-day[data-dk="${k}"]`) || el;
+    day.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    day.classList.remove('flash'); void day.offsetWidth; day.classList.add('flash');
+  };
+  const setOpen = (el, on) => {
+    el.classList.toggle('open', on);
+    el.querySelector('.tn-head').setAttribute('aria-expanded', on);
+    on ? openNodes.add(el.dataset.node) : openNodes.delete(el.dataset.node);
+  };
+  view.querySelectorAll('.tn-head').forEach(b => b.onclick = () => { const el = b.closest('.tnode'); setOpen(el, !el.classList.contains('open')); });
+  if ($('#new')) $('#new').onclick = async () => { if (await askStartTrip()) rerender(); };
+  drawCal();
+  // 封面小圖：每包第一張照片
+  for (const n of nodes) {
+    const img = view.querySelector(`.tnode[data-node="${n.t.id}"] .tn-cover`);
+    for (const c of n.cs) {
+      const m = (await store.listMedia(c.id)).find(x => x.kind !== 'audio' && (x.thumb || x.kind === 'photo'));
+      if (m) { img.innerHTML = `<img src="${ou(m.thumb || m.blob)}" alt="">`; break; }
+    }
+  }
+}
+
+function nodeHTML(n, travelling) {
+  const daily = isDaily(n.t), open = openNodes.has(n.t.id) || travelling && !openNodes.size;
+  if (open) openNodes.add(n.t.id);
+  const days = [], idx = {};
+  n.cs.forEach((c, i) => { const k = dayKey(c.ts); if (!(k in idx)) { idx[k] = days.length; days.push({ k, ts: c.ts, items: [] }); } days[idx[k]].items.push([c, i + 1]); });
+  const range = n.cs.length ? (daily ? `${days.length} 天有紀錄` : `${md(n.a)}${dayKey(n.a) !== dayKey(n.b) ? '–' + md(n.b) : ''} · ${days.length} 天`) : '還沒有打卡';
+  return `<div class="tnode${daily ? ' daily' : ''}${open ? ' open' : ''}" data-node="${n.t.id}">
+    <button class="tn-head" aria-expanded="${open}"><span class="tn-cover">${icon(daily ? 'flower' : 'trip')}</span>
+      <span class="tn-main"><b>${esc(n.t.name)}</b>${travelling ? ' <span class="tag on">旅行中</span>' : ''}<small>${range}${n.cs.length ? ` · ${n.cs.length} 站` : ''}</small></span>${icon('back', 'tn-chev')}</button>
+    <div class="tn-body">
+      ${days.map((d, i) => `<div class="tn-day" data-dk="${d.k}"><p class="tn-dt">${daily ? '' : `第 ${i + 1} 天 · `}${fmtDate(d.ts)}</p>
+        ${d.items.map(([c, num]) => `<a class="tn-stop" href="#c/${c.id}"><svg width="30" height="30" viewBox="-24 -24 48 48" aria-hidden="true">${markerSVG(0, 0, c, num, 1.3, '', null, 'center')}</svg><span class="tn-tm">${fmtTime(c.ts)}</span><b>${esc(c.placeName.replace(/（模擬）/g, ''))}</b></a>`).join('')}</div>`).join('')}
+      <div class="tn-act"><a class="btn sm" href="#trip/${n.t.id}">打開</a>${n.cs.length ? `<a class="btn sm" href="#map/${n.t.id}">${icon('map')}地圖</a><a class="btn sm" href="#card/${n.t.id}">${icon('flower')}明信片</a><a class="btn sm" href="#video/${n.t.id}">${icon('play')}短片</a>` : ''}</div>
+    </div></div>`;
+}
+
+// 年月滾輪：上下滑選年份和月份
+function ymPicker([y0, m0], recYears, recDays) {
+  return new Promise(res => {
+    const now = new Date().getFullYear();
+    const lo = Math.min(now - 5, ...recYears, y0), hi = Math.max(now + 1, y0);
+    const years = []; for (let y = lo; y <= hi; y++) years.push(y);
+    const hasM = (y, m) => recDays.some(k => k.startsWith(`${y}-${m + 1}-`));
+    const hasY = y => recDays.some(k => k.startsWith(`${y}-`));
+    const ov = overlay(`<h2 class="h2" style="margin-top:0">跳到哪個月？</h2>
+      <div class="wheel"><div class="wh-band"></div>
+        <div class="wh-col" id="why">${years.map(y => `<div class="wh-i${hasY(y) ? ' rec' : ''}">${y} 年</div>`).join('')}</div>
+        <div class="wh-col" id="whm">${[...Array(12)].map((_, m) => `<div class="wh-i" data-m="${m}">${m + 1} 月</div>`).join('')}</div>
+      </div>
+      <p class="muted sm" style="text-align:center;margin:6px 0 0">有小點的是有紀錄的年／月</p>
+      <div class="row"><button class="btn" id="whx">取消</button><button class="btn main" id="whok">${icon('check')}看這個月</button></div>`);
+    const IH = 44, cy = ov.querySelector('#why'), cm = ov.querySelector('#whm');
+    const at = col => Math.max(0, Math.round(col.scrollTop / IH));
+    const paintM = () => { const y = years[Math.min(at(cy), years.length - 1)]; cm.querySelectorAll('.wh-i').forEach((e, m) => e.classList.toggle('rec', hasM(y, m))); };
+    const sel = col => { const k = at(col); col.querySelectorAll('.wh-i').forEach((e, i) => e.classList.toggle('on', i === k)); };
+    let tm;
+    [cy, cm].forEach(c => c.addEventListener('scroll', () => { sel(c); clearTimeout(tm); tm = setTimeout(paintM, 80); }, { passive: true }));
+    // 點一下某一格也能選
+    [cy, cm].forEach(c => c.querySelectorAll('.wh-i').forEach((e, i) => e.onclick = () => c.scrollTo({ top: i * IH, behavior: 'smooth' })));
+    requestAnimationFrame(() => { cy.scrollTop = years.indexOf(y0) * IH; cm.scrollTop = m0 * IH; sel(cy); sel(cm); paintM(); });
+    const done = v => { ov.remove(); res(v); };
+    ov.querySelector('#whx').onclick = () => done(null);
+    ov.querySelector('#whok').onclick = () => done([years[Math.min(at(cy), years.length - 1)], Math.min(at(cm), 11)]);
+    ov.onclick = e => { if (e.target === ov) done(null); };
+  });
+}
+
+// 日常 → 把幾天搬進新的旅行包
+function moveDaysDlg(t, days) {
+  const ov = overlay(`<h2 class="h2" style="margin-top:0">把幾天搬進旅行包</h2>
+    <p class="muted sm" style="margin-top:0">勾選的日子會整天搬過去，照片、聲音一起帶走。</p>
+    <div class="places">${days.map(d => `<label class="place"><input type="checkbox" value="${d.k}"><span class="pl-t">${fmtDate(d.ts)}<small>${d.items.length} 站：${esc(d.items.map(x => x.c.placeName.replace(/（模擬）/g, '')).slice(0, 3).join('、'))}${d.items.length > 3 ? '…' : ''}</small></span></label>`).join('')}</div>
+    <label class="lbl" for="mvn">旅行包名字</label><input id="mvn" class="inp" placeholder="例如：週末去海邊">
+    <div class="row"><button class="btn" id="mvx">取消</button><button class="btn main" id="mvok">${icon('check')}建立旅行包</button></div>`);
+  ov.querySelector('#mvx').onclick = () => ov.remove();
+  ov.querySelector('#mvok').onclick = async () => {
+    const ks = [...ov.querySelectorAll('input[type=checkbox]:checked')].map(i => i.value), name = ov.querySelector('#mvn').value.trim();
+    if (!ks.length) { toast('請至少勾選一天'); return; }
+    if (!name) { toast('請幫旅行包取個名字'); return; }
+    const nt = await moveDaysToTrip(t.id, ks, name, dayKey);
+    ov.remove(); toast(`已建立「${name}」`); location.hash = `trip/${nt.id}`;
   };
 }
 
 // ---------- 採蜜地圖 ----------
-const mapStyle = () => (getSetting('mapStyle') === 'cute' ? 'cute' : 'normal');
-const styleSeg = () => `<div class="seg" role="group" aria-label="地圖樣式"><button data-style="normal" class="${mapStyle() === 'normal' ? 'on' : ''}">正常版</button><button data-style="cute" class="${mapStyle() === 'cute' ? 'on' : ''}">可愛版</button></div>`;
+const MAP_STYLES = [['normal', '正常'], ['cute', '可愛'], ['night', '夜空']];
+const mapStyle = () => { const s = getSetting('mapStyle'); return MAP_STYLES.some(([k]) => k === s) ? s : 'normal'; };
+const styleSeg = (cur = mapStyle(), attr = 'data-style') => `<div class="seg" role="group" aria-label="地圖樣式">${MAP_STYLES.map(([k, n]) => `<button ${attr}="${k}" class="${cur === k ? 'on' : ''}">${n}</button>`).join('')}</div>`;
 
 // 地圖圖例：三種標記
 const mkIcon = (c, size = 34) => `<svg width="${size}" height="${size}" viewBox="-24 -24 48 48" aria-hidden="true">${markerSVG(0, 0, c, null, 1)}</svg>`;
 const mapLegend = () => `<div class="legend mk-legend"><span>${mkIcon({ adult: true, kid: false }, 26)}大人打卡</span><span>${mkIcon({ adult: false, kid: true }, 26)}孩子蓋章</span><span>${mkIcon({ adult: true, kid: true }, 26)}一起打卡</span></div>`;
 
 // 把地圖放進 box，並綁好天數切換、當天清單、「正常／可愛」與「連起來」
-async function attachMap(box, checkins, height, seed) {
+async function attachMap(box, checkins, height, seed, daily = false) {
   const info = dayInfo(checkins);
   let day = info.days.length ? defaultDay(info) : null, connected = false;
   const tabs = $('#daytabs'), list = $('#daylist'), conn = $('#conn');
@@ -257,7 +411,7 @@ async function attachMap(box, checkins, height, seed) {
   const drawTabs = () => {
     if (!tabs) return;
     tabs.innerHTML = info.days.length > 1 || info.days.length === 0 ? `<button data-dd="all" class="${day == null ? 'on' : ''}">全部</button>` : '';
-    tabs.innerHTML += info.days.map((d, k) => { const [, m, dd] = d.split('-'); return `<button data-dd="${k}" class="${day === k ? 'on' : ''}">第 ${k + 1} 天 <small>${m}/${dd}</small></button>`; }).join('');
+    tabs.innerHTML += info.days.map((d, k) => { const [, m, dd] = d.split('-'); return `<button data-dd="${k}" class="${day === k ? 'on' : ''}">${daily ? `${m}/${dd}` : `第 ${k + 1} 天 <small>${m}/${dd}</small>`}</button>`; }).join('');
     tabs.querySelectorAll('[data-dd]').forEach(b => b.onclick = () => setDay(b.dataset.dd === 'all' ? null : +b.dataset.dd));
     tabs.querySelector('.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
   };
@@ -305,7 +459,7 @@ async function mapView(id) {
     ${mapLegend()}
     <p class="muted sm" style="margin-top:10px">${getSetting('amapKey') ? '' : '目前是插畫地圖；到「設定」填入高德金鑰後，會換成真實的城市地圖。'}</p>`;
   $('#tripchip').onclick = () => { location.hash = 'trips'; };
-  await attachMap($('#mapbox'), cs, h, t.id);
+  await attachMap($('#mapbox'), cs, h, t.id, isDaily(t));
 }
 
 // ---------- 花園主題：選擇與自訂 ----------
@@ -609,7 +763,7 @@ async function cardView(id) {
     panel = k; el.hidden = false;
     $('#pcchips').querySelectorAll('[data-p]').forEach(x => x.classList.toggle('on', x.dataset.p === k));
     if (k === 'show') {
-      const opts = pc.tpl === 'D' ? [['stats', '章數'], ['quote', '一句話']] : pc.tpl === 'C' ? [['photos', '每站照片'], ['quote', '一句話']] : pc.tpl === 'B' ? [['list', '行程清單'], ['stats', '旅程數字'], ['mapPhotos', '地圖花心照片'], ['quote', '一句話']] : [['list', '行程清單'], ['stats', '旅程數字'], ['photos', '照片'], ['mapPhotos', '地圖花心照片'], ['quote', '一句話']];
+      const opts = pc.tpl === 'D' ? [['stats', '章數'], ['quote', '一句話']] : pc.tpl === 'C' ? [['photos', '每站照片'], ['quote', '一句話']] : pc.tpl === 'B' ? [['list', '行程清單'], ['stats', '旅程數字'], ['quote', '一句話']] : [['list', '行程清單'], ['stats', '旅程數字'], ['photos', '照片'], ['quote', '一句話']];
       el.innerHTML = `<div class="pcsw">${opts.map(([a, b]) => sw(a, b)).join('')}</div>${pc.show.quote && !pc.quote ? '<p class="muted sm">一句話要在「文字」裡填寫。</p>' : ''}`;
       el.querySelectorAll('[data-sw]').forEach(b => b.onclick = () => { pc.show[b.dataset.sw] = !pc.show[b.dataset.sw]; openPanel('show', true); changed(); });
     } else if (k === 'photos') {
@@ -625,7 +779,7 @@ async function cardView(id) {
       if ($('#phreset')) $('#phreset').onclick = () => { pc.photoIds = null; openPanel('photos', true); changed(); };
     } else if (k === 'color') {
       el.innerHTML = `<p class="lbl" style="margin-top:0">配色</p><div class="pcpal">${Object.entries(PALETTES).map(([key, n]) => `<button data-pal="${key}" class="pal-${key}${pc.palette === key ? ' on' : ''}"><i></i>${n}</button>`).join('')}</div>
-        ${pc.tpl === 'D' ? '' : `<p class="lbl">地圖樣式</p><div class="seg"><button data-ms="normal" class="${pc.style === 'normal' ? 'on' : ''}">正常版</button><button data-ms="cute" class="${pc.style === 'cute' ? 'on' : ''}">可愛版</button></div>`}`;
+        ${pc.tpl === 'D' ? '' : `<p class="lbl">地圖樣式</p>${styleSeg(pc.style, 'data-ms')}`}`;
       el.querySelectorAll('[data-pal]').forEach(b => b.onclick = () => { pc.palette = b.dataset.pal; openPanel('color', true); changed(); });
       el.querySelectorAll('[data-ms]').forEach(b => b.onclick = () => { pc.style = b.dataset.ms; openPanel('color', true); changed(); });
     } else if (k === 'text') {
@@ -663,17 +817,17 @@ async function trip(id) {
   const vis = meta.reduce((s, x) => s + x.m.filter(m => m.kind !== 'audio').length, 0);
   const kid = meta.filter(x => isKid(x.c)).length;
   view.innerHTML = `<a class="back" href="#trips">${icon('back')}所有旅行包</a>
-    <div class="row between"><h1 class="h1">${esc(t.name)}</h1><button class="btn sm" id="ren">改名</button></div>
+    <div class="row between"><h1 class="h1">${esc(t.name)}</h1>${isDaily(t) ? '' : '<button class="btn sm" id="ren">改名</button>'}</div>
     <div class="stats"><div><b>${meta.length}</b>地點</div><div><b>${days.length}</b>天</div><div><b>${vis}</b>照片影片</div><div><b>${kid}</b>孩子的章</div></div>
     <div class="dayseg" id="daytabs"></div>
     <div id="mapbox"></div>
     <div class="daylist" id="daylist"></div>
     <div class="mapbar">${styleSeg()}<span class="row" style="margin:0"><button class="btn sm" id="conn">${icon('flower')}連起來</button><a class="btn sm" href="#map/${id}">${icon('map')}放大</a></span></div>
     ${mapLegend()}
-    ${days.map((d, i) => { const th = (t.dayThemes || {})[d.k] ? getTheme(t.dayThemes[d.k]) : null; return `<h2 class="h2 day"><span class="dn">第 ${i + 1} 天</span>${fmtDate(d.ts)}<button class="tchip" data-day="${d.k}" aria-label="更改這天的花園主題">${th ? `${themeIcon(th, 22)}${esc(th.name)}` : '選花園主題'}</button></h2><div class="cards">${d.items.map(cardHTML).join('')}</div>`; }).join('') || '<p class="empty" style="margin-top:14px">這趟旅程還沒有打卡。</p>'}
+    ${days.map((d, i) => { const th = (t.dayThemes || {})[d.k] ? getTheme(t.dayThemes[d.k]) : null; return `<h2 class="h2 day">${isDaily(t) ? '' : `<span class="dn">第 ${i + 1} 天</span>`}${fmtDate(d.ts)}<button class="tchip" data-day="${d.k}" aria-label="更改這天的花園主題">${th ? `${themeIcon(th, 22)}${esc(th.name)}` : '選花園主題'}</button></h2><div class="cards">${d.items.map(cardHTML).join('')}</div>`; }).join('') || '<p class="empty" style="margin-top:14px">這趟旅程還沒有打卡。</p>'}
     <div class="row"><a class="btn main" href="#video/${id}">${icon('play')}一鍵生成短片</a><a class="btn" href="#card/${id}">${icon('flower')}做足跡明信片</a></div>
-    <div class="row">${getActiveId() !== id ? '<button class="btn" id="act">設為目前旅程</button>' : ''}<button class="btn danger" id="del">${icon('trash')}刪除這個旅行包</button></div>`;
-  await attachMap($('#mapbox'), meta.map(x => x.c), 260, id);
+    <div class="row">${isDaily(t) ? (days.length ? `<button class="btn" id="mv">${icon('trip')}把幾天搬進旅行包</button>` : '') : getMode() === 'trip' && getActiveId() === id ? '<span class="tag on" style="align-self:center">旅行中</span>' : `<button class="btn" id="act">${icon('trip')}繼續這趟旅行</button>`}<button class="btn danger" id="del">${icon('trash')}刪除這個旅行包</button></div>`;
+  await attachMap($('#mapbox'), meta.map(x => x.c), 260, id, isDaily(t));
   view.querySelectorAll('[data-day]').forEach(b => b.onclick = async () => {
     const cur = (t.dayThemes || {})[b.dataset.day];
     const tid = await themePicker(cur);
@@ -681,12 +835,13 @@ async function trip(id) {
     t.dayThemes = { ...(t.dayThemes || {}), [b.dataset.day]: tid };
     await store.saveTrip(t); toast('已更新這天的花園主題'); rerender();
   });
-  $('#ren').onclick = async () => { const n = await inputDlg('旅程名稱', t.name); if (n) { t.name = n; await store.saveTrip(t); rerender(); } };
-  if ($('#act')) $('#act').onclick = () => { setActiveId(id); toast('已設為目前旅程'); rerender(); };
+  if ($('#ren')) $('#ren').onclick = async () => { const n = await inputDlg('旅程名稱', t.name); if (n) { t.name = n; await store.saveTrip(t); rerender(); } };
+  if ($('#act')) $('#act').onclick = () => { resumeTrip(id); toast(`繼續旅行：之後的打卡會放進「${t.name}」`); rerender(); };
+  if ($('#mv')) $('#mv').onclick = () => moveDaysDlg(t, days);
   $('#del').onclick = async () => {
     if (!(await confirmDlg(`確定要刪除「${t.name}」？裡面的打卡、照片、影片和聲音都會一起刪除，無法復原。`, '刪除', '取消'))) return;
     await store.deleteTrip(id);
-    if (getActiveId() === id) { try { localStorage.removeItem('fc-active'); } catch (e) {} }
+    if (getActiveId() === id) { try { localStorage.removeItem('fc-active'); } catch (e) {} endTrip(); }
     toast('已刪除'); location.hash = 'trips';
   };
 }

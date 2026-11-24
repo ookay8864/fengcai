@@ -95,18 +95,51 @@ export async function findMergeTarget(tripId, place, pos, who) {
     .sort((a, b) => b.ts - a.ts)[0] || null;
 }
 
-// 目前旅程
+// ---------- 目前模式：日常／旅行中 ----------
+// 日常：打卡放進「當月日常」（每個月一個，id 是 daily-年-月）
+// 旅行中：打卡放進目前的旅行包；按「結束旅行」就回到日常
 export const getActiveId = () => { try { return localStorage.getItem('fc-active'); } catch (e) { return null; } };
 export const setActiveId = id => { try { localStorage.setItem('fc-active', id); } catch (e) {} };
-export async function ensureActiveTrip() {
-  const id = getActiveId();
+export function getMode() {
+  try {
+    const m = localStorage.getItem('fc-mode');
+    if (m) return m;
+    return getActiveId() ? 'trip' : 'daily'; // 舊資料：原本有目前旅程就維持「旅行中」
+  } catch (e) { return 'daily'; }
+}
+export const setMode = m => { try { localStorage.setItem('fc-mode', m); } catch (e) {} };
+export const isDaily = t => !!(t && t.daily);
+const pad = n => String(n).padStart(2, '0');
+export const dailyId = (d = new Date()) => `daily-${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+export async function ensureDaily(d = new Date()) {
+  const id = dailyId(d);
   let t = await store.getTrip(id);
-  if (t) return t;
-  const ts = await store.listTrips();
-  if (ts.length) { setActiveId(ts[0].id); return ts[0]; }
-  const d = new Date();
-  t = { id: uid(), name: `${d.getMonth() + 1}月${d.getDate()}日的旅程`, createdAt: Date.now() };
+  if (!t) {
+    t = { id, daily: true, name: `${d.getFullYear()} 年 ${d.getMonth() + 1} 月日常`, createdAt: new Date(d.getFullYear(), d.getMonth(), 1).getTime() };
+    await store.saveTrip(t);
+  }
+  return t;
+}
+// 打卡要放進哪一包
+export async function ensureActiveTrip() {
+  if (getMode() === 'trip') {
+    const t = await store.getTrip(getActiveId());
+    if (t && !t.daily) return t;
+  }
+  return ensureDaily();
+}
+export async function startTrip(name) {
+  const t = { id: uid(), name, createdAt: Date.now() };
   await store.saveTrip(t);
-  setActiveId(t.id);
+  setActiveId(t.id); setMode('trip');
+  return t;
+}
+export function resumeTrip(id) { setActiveId(id); setMode('trip'); }
+export function endTrip() { setMode('daily'); }
+// 把日常裡的幾天搬進一個新的旅行包
+export async function moveDaysToTrip(fromId, dayKeys, name, dayKeyOf) {
+  const t = { id: uid(), name, createdAt: Date.now() };
+  await store.saveTrip(t);
+  for (const c of await store.listCheckins(fromId)) if (dayKeys.includes(dayKeyOf(c.ts))) { c.tripId = t.id; await store.saveCheckin(c); }
   return t;
 }

@@ -36,8 +36,8 @@ function cssVars(names) {
 }
 // App 介面色（短片也用）
 export function palette() {
-  const v = cssVars(['--bg', '--ink', '--ink-soft', '--honey', '--honey-deep', '--honey-soft', '--petal', '--line', '--map-bg', '--route-normal', '--route-cute', '--day-1', '--day-2', '--day-3', '--day-4', '--day-5']);
-  return { bg: v['--bg'], ink: v['--ink'], soft: v['--ink-soft'], honey: v['--honey'], deep: v['--honey-deep'], soft2: v['--honey-soft'], petal: v['--petal'], card: '#FFFFFF', line: v['--line'], mapBg: v['--map-bg'], routeN: v['--route-normal'], routeC: v['--route-cute'], days: [1, 2, 3, 4, 5].map(i => v['--day-' + i]) };
+  const v = cssVars(['--bg', '--ink', '--ink-soft', '--honey', '--honey-deep', '--honey-soft', '--petal', '--line', '--map-bg', '--route-normal', '--route-cute', '--day-1', '--day-2', '--day-3', '--day-4', '--day-5', '--night-gold']);
+  return { bg: v['--bg'], ink: v['--ink'], soft: v['--ink-soft'], honey: v['--honey'], deep: v['--honey-deep'], soft2: v['--honey-soft'], petal: v['--petal'], card: '#FFFFFF', line: v['--line'], mapBg: v['--map-bg'], routeN: v['--route-normal'], routeC: v['--route-cute'], days: [1, 2, 3, 4, 5].map(i => v['--day-' + i]), nightGold: v['--night-gold'] };
 }
 // 明信片配色
 function pcPalette(name) {

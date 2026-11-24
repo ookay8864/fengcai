@@ -1,7 +1,7 @@
 /* ==========================================================
    蜂采 主題檔（theme.css）
    之後要換顏色、字體、圓角、背景花紋，只改這個檔案
-   和 ./ 資料夾裡的圖（logo.svg、icons.svg），
+   和 assets/ 資料夾裡的圖（logo.svg、icons.svg），
    不需要動 js/ 裡的任何功能程式。
    ========================================================== */
 :root{
@@ -38,6 +38,17 @@
   --mk-center-hi:#FFD66B;
   --mk-kid-bg:#FFE3EC;
   --mk-badge:#FFFFFF;
+  /* 旅行包月曆：有旅行的日子墊一朵淡花 */
+  --cal-flower:#FCE3A1;
+  --cal-flower-c:#FFF1C9;
+  /* 地圖：夜空版（暗黑） */
+  --night-bg:#161C33;
+  --night-star:#F3E6C8;
+  --night-ink:#F3E6C8;
+  --night-gold:#E8B84A;
+  --night-gold-hi:#FFD978;
+  --night-glow:rgba(232,184,74,.16);
+  --night-kid-bg:#3A2F55;
   /* 地圖：可愛版與兒童花園 */
   --meadow-1:#FFF1B8;
   --meadow-2:#CDEFB0;
@@ -107,5 +118,7 @@
     --kid-card:#3A2A10;
     --map-bg:#241909;
     --map-grid:#33250F;
+    --cal-flower:#5A4212;
+    --cal-flower-c:#6E5418;
   }
 }
