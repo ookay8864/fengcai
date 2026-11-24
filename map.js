@@ -6,7 +6,7 @@
 // 顏色都來自 theme.css 的 --map-* 變數
 // ==========================================================
 import { CONFIG, getSetting } from './config.js';
-import { loadAMap, wgs2gcj } from './geo.js';
+import { loadAMap, mapProvider, inMainland, peekPosition, wgs2gcj } from './geo.js';
 import { esc, dayKey } from './ui.js';
 import { ITEMS } from './themes.js';
 import { isKid, isAdult } from './store.js';
@@ -298,6 +298,96 @@ function amapMarker(c, num, faded, style, label) {
   const cute = style === 'cute', sc = cute ? 1.3 : 1.1, sz = Math.round(44 * sc);
   return `<div class="amk${faded ? ' faded' : ''}"><svg viewBox="${-sz / 2} ${-sz / 2} ${sz} ${sz}" width="${sz}" height="${sz}">${markerSVG(0, 0, c, num, sc, !faded && cute ? 'bob' : '')}</svg>${label ? `<span>${esc(shortName(c.placeName))}</span>` : ''}</div>`;
 }
+// 右下角「回到我的位置」按鈕（高德、開放地圖共用）
+function locButton(el, onClick) {
+  const loc = document.createElement('button');
+  loc.className = 'map-loc'; loc.type = 'button'; loc.setAttribute('aria-label', '回到我的位置'); loc.hidden = true;
+  loc.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="currentColor"/><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  loc.onclick = onClick;
+  el.appendChild(loc);
+  return loc;
+}
+
+// ---------- 開放地圖（OpenStreetMap，台灣、港澳、國外用；免費、不用金鑰） ----------
+let leafP = null;
+function loadLeaflet() {
+  if (window.L && window.L.map) return Promise.resolve(window.L);
+  if (!leafP) leafP = new Promise((res, rej) => {
+    const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = CONFIG.osm.css; document.head.appendChild(css);
+    const s = document.createElement('script'); s.src = CONFIG.osm.js;
+    s.onload = () => (window.L ? res(window.L) : rej(new Error('leaflet')));
+    s.onerror = () => { leafP = null; rej(new Error('開放地圖載入失敗')); };
+    document.head.appendChild(s);
+  });
+  return leafP;
+}
+async function mountOSM(el, pts, info, opt) {
+  const L = await loadLeaflet();
+  el.innerHTML = '<div class="amap-box"></div>';
+  const box = el.firstChild;
+  const start = pts[0] || opt.me || { lat: 25.034, lng: 121.5645 };
+  const map = L.map(box, { zoomControl: false, attributionControl: true }).setView([start.lat, start.lng], 15);
+  const tileUrl = s => CONFIG.osm.tiles[s] || CONFIG.osm.tiles.normal;
+  const tiles = L.tileLayer(tileUrl(opt.style), { maxZoom: 19, subdomains: 'abcd', attribution: CONFIG.osm.attribution }).addTo(map);
+  await new Promise((res, rej) => { const tm = setTimeout(() => rej(new Error('timeout')), 12000); tiles.once('tileload', () => { clearTimeout(tm); res(); }); })
+    .catch(e => { try { map.remove(); } catch (x) {} throw e; });
+  const on = i => opt.day == null || info.dayOf(pts[i]) === opt.day;
+  const mkIcon = i => {
+    const c = pts[i], sel = opt.day != null && on(i), sc = opt.style === 'cute' ? 1.3 : 1.1, sz = Math.round(44 * sc);
+    return L.divIcon({ html: amapMarker(c, sel ? info.num(c) : null, !on(i), opt.style, sel && opt.style !== 'cute'), className: 'leaf-mk', iconSize: [sz, sz], iconAnchor: [sz / 2, sz / 2] });
+  };
+  const markers = pts.map((c, i) => L.marker([c.lat, c.lng], { icon: mkIcon(i) }).on('click', () => opt.onPick && opt.onPick(c)).addTo(map));
+  const paint = () => markers.forEach((m, i) => { m.setIcon(mkIcon(i)); m.setZIndexOffset(on(i) ? 200 : 0); });
+  const fit = () => {
+    const P = pts.filter((_, i) => on(i)).map(c => [c.lat, c.lng]);
+    if (P.length === 1) map.setView(P[0], 16); else if (P.length) map.fitBounds(P, { padding: [60, 60], maxZoom: 16 });
+  };
+  paint(); fit();
+  let meMk = null;
+  const loc = locButton(el, () => { if (opt.me) map.setView([opt.me.lat, opt.me.lng], 16); });
+  const setMe = me => {
+    opt.me = me; if (!me) return;
+    const ll = [me.lat, me.lng];
+    if (!meMk) meMk = L.marker(ll, { icon: L.divIcon({ html: '<div class="me-dot"><i></i></div>', className: 'leaf-me', iconSize: [18, 18], iconAnchor: [9, 9] }), zIndexOffset: 1000, interactive: false }).addTo(map);
+    else meMk.setLatLng(ll);
+    loc.hidden = false;
+    if (!pts.length) map.setView(ll, 16);
+  };
+  if (opt.me) setMe(opt.me);
+  let line = null, bee = null, raf = 0;
+  const clearRoute = () => { cancelAnimationFrame(raf); if (line) line.remove(); if (bee) bee.remove(); line = bee = null; };
+  const routeColor = () => (opt.style === 'cute' ? '#FF6F91' : opt.style === 'night' ? '#E8B84A' : '#D98A00');
+  return {
+    kind: 'osm',
+    connect() {
+      clearRoute();
+      const P = pts.filter((_, i) => on(i)).map(c => [c.lat, c.lng]);
+      if (P.length < 2) return;
+      line = L.polyline([P[0]], { color: routeColor(), weight: 6, opacity: .95, dashArray: '12 9', lineCap: 'round' }).addTo(map);
+      bee = L.marker(P[0], { icon: L.divIcon({ html: `<svg viewBox="-16 -18 32 32" width="34" height="34" class="amap-bee">${BEE}</svg>`, className: 'leaf-mk', iconSize: [34, 34], iconAnchor: [17, 17] }), zIndexOffset: 900, interactive: false }).addTo(map);
+      const seg = P.slice(1).map((p, i) => Math.hypot(p[0] - P[i][0], p[1] - P[i][1]));
+      const total = seg.reduce((a, b) => a + b, 0) || 1, dur = Math.min(7000, 1200 + P.length * 450);
+      let t0 = null;
+      const step = ts => {
+        if (t0 == null) t0 = ts;
+        const t = Math.min(1, (ts - t0) / dur);
+        let d = total * t, i = 0;
+        while (i < seg.length - 1 && d > seg[i]) { d -= seg[i]; i++; }
+        const k = seg[i] ? Math.min(1, d / seg[i]) : 1;
+        const p = [P[i][0] + (P[i + 1][0] - P[i][0]) * k, P[i][1] + (P[i + 1][1] - P[i][1]) * k];
+        line.setLatLngs(P.slice(0, i + 1).concat([p])); bee.setLatLng(p);
+        if (t < 1) raf = requestAnimationFrame(step);
+      };
+      raf = requestAnimationFrame(step);
+    },
+    hideRoute: clearRoute,
+    setStyle(s) { opt.style = s; tiles.setUrl(tileUrl(s)); paint(); if (line) line.setStyle({ color: routeColor() }); },
+    setDay(d) { opt.day = d; clearRoute(); paint(); fit(); },
+    setMe,
+    destroy() { clearRoute(); try { map.remove(); } catch (e) {} }
+  };
+}
+
 async function mountAMap(el, pts, info, opt) {
   const AM = await loadAMap();
   if (!AM || !AM.Map) throw new Error('no amap');
@@ -311,11 +401,7 @@ async function mountAMap(el, pts, info, opt) {
     .catch(e => { try { map.destroy(); } catch (x) {} throw e; });
   // 我的位置：藍點；右下角按鈕回到我的位置
   let meMk = null;
-  const loc = document.createElement('button');
-  loc.className = 'map-loc'; loc.type = 'button'; loc.setAttribute('aria-label', '回到我的位置'); loc.hidden = true;
-  loc.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="currentColor"/><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
-  loc.onclick = () => { const p = mePos(); if (p) map.setZoomAndCenter(16, p); };
-  el.appendChild(loc);
+  const loc = locButton(el, () => { const p = mePos(); if (p) map.setZoomAndCenter(16, p); });
   const setMe = me => {
     opt.me = me; const p = mePos(); if (!p) return;
     if (!meMk) { meMk = new AM.Marker({ position: p, anchor: 'center', zIndex: 500, content: '<div class="me-dot"><i></i></div>' }); map.add(meMk); } else meMk.setPosition(p);
@@ -383,10 +469,20 @@ export async function mountMap(el, checkins, opt = {}) {
   if (opt.height) el.style.height = opt.height + 'px';
   const none = { kind: 'none', info, connect() {}, hideRoute() {}, setStyle() {}, setDay(d) { opt.day = d; }, setMe() {}, destroy() {} };
 
-  if (getSetting('amapKey') && (pts.length || opt.wantMe)) {
-    try { const ctl = await mountAMap(el, pts, info, opt); ctl.info = info; return ctl; } catch (e) { console.warn('高德地圖無法載入，改用插畫地圖', e); opt.amapFailed = true; }
+  // 用哪一種地圖：大多數打卡點（或現在的位置）在大陸 → 高德；在台灣、港澳、國外 → 開放地圖
+  if (!pts.length && opt.wantMe && !opt.me) opt.me = await Promise.race([peekPosition().catch(() => null), new Promise(r => setTimeout(() => r(null), 4000))]);
+  const ref = pts.length ? pts : opt.me ? [opt.me] : [];
+  const outside = ref.filter(p => !inMainland(p.lat, p.lng)).length;
+  const prov = !ref.length ? 'none' : outside * 2 > ref.length || !getSetting('amapKey') ? 'osm' : 'amap';
+  if (prov === 'osm' && (pts.length || opt.wantMe)) {
+    try { const ctl = await mountOSM(el, pts, info, opt); ctl.info = info; return ctl; } catch (e) { console.warn('開放地圖無法載入，改用插畫地圖', e); opt.osmFailed = true; }
   }
-  none.amapFailed = !!opt.amapFailed;
+  if (prov === 'amap' && (pts.length || opt.wantMe)) {
+    try { const ctl = await mountAMap(el, pts, info, opt); ctl.info = info; return ctl; } catch (e) { console.warn('高德地圖無法載入，改用開放地圖', e); opt.amapFailed = true; }
+    // 高德不行時，先改用開放地圖
+    try { const ctl = await mountOSM(el, pts, info, opt); ctl.info = info; ctl.amapFailed = true; return ctl; } catch (e) { opt.osmFailed = true; }
+  }
+  none.amapFailed = !!opt.amapFailed; none.osmFailed = !!opt.osmFailed; none.prov = prov;
   if (!pts.length) { el.innerHTML = '<p class="map-empty">打卡之後，這裡會開出第一朵花<br><small>想看以前去過的地方，點上面的「全部足跡」</small></p>'; return none; }
 
   let stop = null, connected = false;
@@ -402,7 +498,7 @@ export async function mountMap(el, checkins, opt = {}) {
   };
   let svg = draw();
   return {
-    kind: 'svg', info, amapFailed: !!opt.amapFailed,
+    kind: 'svg', info, amapFailed: !!opt.amapFailed, osmFailed: !!opt.osmFailed, prov,
     connect() { connected = true; svg = draw(); hideRoute(svg); stop = animateRoute(svg); },
     hideRoute() { connected = false; svg = draw(); },
     setStyle(s) { opt.style = s; svg = draw(); },

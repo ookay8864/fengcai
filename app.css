@@ -567,3 +567,7 @@ body.kid{background:var(--kid-bg) var(--pattern);color:var(--kid-ink)}
 .tl-daycard.flash{animation:tnflash 1.6s}
 .tl-dc-h{margin:0 0 2px;display:flex;align-items:center;gap:5px;font:800 13px var(--font);color:var(--leaf)}
 .tl-dc-h .ic{width:16px;height:16px}
+/* 開放地圖（Leaflet）的標記：不要預設白框 */
+.leaf-mk,.leaf-me{background:none;border:0}
+.leaflet-container{font-family:var(--font);background:var(--map-bg)}
+.leaflet-control-attribution{font-size:10px}

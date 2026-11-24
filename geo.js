@@ -141,6 +141,7 @@ const TYPES = '餐饮服务|风景名胜|科教文化服务|购物服务|体育�
 export async function nearby(lat, lng) {
   if (lat == null) return [];
   if (isDemo()) return demoNearby(lat, lng);
+  if (!inMainland(lat, lng) || !getSetting('amapKey')) return osmNearby(lat, lng);
   const AM = await loadAMap();
   if (!AM) return [];
   const [glng, glat] = wgs2gcj(lng, lat);
@@ -155,6 +156,79 @@ export async function nearby(lat, lng) {
   });
 }
 
+// ---------- 在不在中國大陸？大陸用高德；台灣、港澳、國外用免費的開放地圖（OpenStreetMap） ----------
+const MAINLAND = [[123.5,53.6],[127.5,50],[130.6,48.9],[134.8,48.3],[131.3,42.9],[129,42.4],[126,41],[124.2,39.8],[122.5,37],[122,31],[122.2,30],[120.5,27],[119.5,25.5],[117,23.4],[114.6,22.6],[114.05,22.505],[113.85,22.48],[113.5,22],[111,21.3],[111.2,19.5],[110.2,18],[108.5,18.3],[108,21.5],[106.7,21.9],[104,22.8],[101.8,21.1],[100,21.5],[98,24],[97.5,25.5],[98.7,27.5],[97,28.5],[92,27.8],[89,27.5],[85,28.3],[81,30],[78.7,31.5],[79.5,35.5],[74.5,37],[73.5,39.5],[75.5,40.5],[80.2,42],[80.5,45],[82.5,45.5],[85.5,47],[87.5,49.2],[90.5,47.8],[96,43],[105,41.6],[112,43.6],[116,46],[118,47.9],[116,49.8],[119.5,53.3]];
+export function inMainland(lat, lng) {
+  if (lat == null || lng == null) return true;
+  if (lng > 113.52 && lng < 113.62 && lat > 22.09 && lat < 22.22) return false; // 澳門
+  let inside = false;
+  for (let i = 0, j = MAINLAND.length - 1; i < MAINLAND.length; j = i++) {
+    const [xi, yi] = MAINLAND[i], [xj, yj] = MAINLAND[j];
+    if ((yi > lat) !== (yj > lat) && lng < (xj - xi) * (lat - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+// 這個位置用哪一種地圖：amap 高德、osm 開放地圖、none 插畫
+export const mapProvider = (lat, lng) => (inMainland(lat, lng) && getSetting('amapKey') ? 'amap' : 'osm');
+
+// 開放地圖：用名字找地點（Photon，免費、不用金鑰）
+const OSM_TYPE = k => {
+  const [key, val] = k;
+  if (key === 'amenity' && /restaurant|cafe|fast_food|food_court|ice_cream|bar|pub/.test(val)) return '餐飲;' + val;
+  if (key === 'shop') return '購物;' + val;
+  if (key === 'tourism' && /hotel|hostel|guest_house|motel|apartment/.test(val)) return '住宿;' + val;
+  if (key === 'tourism' && /museum|gallery/.test(val)) return '科教文化;博物館';
+  if (key === 'amenity' && /place_of_worship|library|theatre|arts_centre/.test(val)) return '科教文化;' + val;
+  if (key === 'leisure' && /park|garden|nature_reserve/.test(val)) return '風景;公園';
+  if (key === 'tourism' && /zoo|theme_park|aquarium/.test(val)) return '遊樂;' + val;
+  if (key === 'leisure') return '體育休閒;' + val;
+  if (key === 'natural' || key === 'historic' || key === 'tourism') return '風景;' + val;
+  return val || '';
+};
+async function osmSearch(kw, near) {
+  const u = new URL('https://photon.komoot.io/api/');
+  u.searchParams.set('q', kw); u.searchParams.set('limit', '12');
+  if (near && near.lat != null) { u.searchParams.set('lat', near.lat); u.searchParams.set('lon', near.lng); }
+  const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 8000);
+  try {
+    const j = await (await fetch(u, { signal: ctl.signal })).json();
+    return (j.features || []).map(f => {
+      const p = f.properties || {}, [lng, lat] = f.geometry.coordinates;
+      return { id: `osm-${p.osm_type || ''}${p.osm_id || ''}`, name: p.name || p.street || '', type: OSM_TYPE([p.osm_key, p.osm_value]), address: [p.city || p.county, p.district, p.street, p.housenumber].filter(Boolean).join(' '), lat, lng, dist: near && near.lat != null ? Math.round(distM(near, { lat, lng })) : null };
+    }).filter(p => p.name);
+  } catch (e) { return []; } finally { clearTimeout(tm); }
+}
+// 開放地圖：附近有名字的地點（先用 Photon，失敗再用 Overpass；都免費、不用金鑰）
+const SKIP = /^(place|highway|boundary|railway|route|landuse|building|power|office)$/, SKIPV = /luggage_locker|atm|parking|toilets|bench|waste|vending|bicycle_parking|post_box|telephone|charging|bank|clinic|doctors|dentist|pharmacy/;
+async function osmNearby(lat, lng) {
+  const u = `https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}&limit=40&radius=${CONFIG.nearbyRadius / 1000}`;
+  const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 7000);
+  try {
+    const j = await (await fetch(u, { signal: ctl.signal })).json();
+    const seen = new Set();
+    const list = (j.features || []).map(f => {
+      const p = f.properties || {}, [lo, la] = f.geometry.coordinates;
+      return { id: `osm-${p.osm_type || ''}${p.osm_id || ''}`, name: p.name || '', key: p.osm_key, val: p.osm_value, type: OSM_TYPE([p.osm_key, p.osm_value]), lat: la, lng: lo, dist: Math.round(distM({ lat, lng }, { lat: la, lng: lo })) };
+    }).filter(p => p.name && !SKIP.test(p.key || '') && !SKIPV.test(p.val || '') && !seen.has(p.name) && seen.add(p.name)).sort((a, b) => a.dist - b.dist).slice(0, 20);
+    if (list.length) return list;
+  } catch (e) {} finally { clearTimeout(tm); }
+  return osmNearbyOverpass(lat, lng);
+}
+async function osmNearbyOverpass(lat, lng) {
+  const R = CONFIG.nearbyRadius, sel = '["name"]["amenity"~"restaurant|cafe|fast_food|ice_cream|library|place_of_worship|theatre|arts_centre"]';
+  const q = `[out:json][timeout:8];(nwr(around:${R},${lat},${lng})${sel};nwr(around:${R},${lat},${lng})["name"]["tourism"];nwr(around:${R},${lat},${lng})["name"]["leisure"~"park|garden|playground|sports_centre|stadium"];nwr(around:${R},${lat},${lng})["name"]["shop"~"mall|department_store|supermarket|bakery|books|toys|gift"];nwr(around:${R},${lat},${lng})["name"]["historic"];);out center 60;`;
+  const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 6000);
+  try {
+    const j = await (await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: ctl.signal })).json();
+    const seen = new Set();
+    return (j.elements || []).map(e => {
+      const t = e.tags || {}, la = e.lat ?? e.center?.lat, lo = e.lon ?? e.center?.lon;
+      const key = ['tourism', 'amenity', 'leisure', 'shop', 'historic'].find(k => t[k]);
+      return { id: `osm-${e.type}${e.id}`, name: t['name:zh-Hant'] || t['name:zh'] || t.name, type: OSM_TYPE([key, t[key]]), lat: la, lng: lo, dist: la != null ? Math.round(distM({ lat, lng }, { lat: la, lng: lo })) : 0 };
+    }).filter(p => p.name && !seen.has(p.name) && seen.add(p.name)).sort((a, b) => a.dist - b.dist).slice(0, 20);
+  } catch (e) { return []; } finally { clearTimeout(tm); }
+}
+
 // ---------- 用名字找地點（打卡時輸入兩個字以上） ----------
 // 先找附近 50 公里內，找不到再全國找；回傳的 lat/lng 是 GPS 座標
 export async function searchPlaces(kw, near) {
@@ -165,6 +239,7 @@ export async function searchPlaces(kw, near) {
     DEMO.forEach(s => s.pois.forEach(([name, type]) => { if (name.includes(kw)) out.push({ id: 'demo-' + name, name, type, address: '雲南大理（模擬）', lat: s.lat, lng: s.lng, dist: near && near.lat != null ? Math.round(distM(near, s)) : null }); }));
     return out;
   }
+  if ((near && near.lat != null && !inMainland(near.lat, near.lng)) || !getSetting('amapKey')) return osmSearch(kw, near);
   const AM = await loadAMap();
   if (!AM) return [];
   const conv = p => {

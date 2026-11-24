@@ -1,7 +1,7 @@
 // 蜂采 大人頁面
 import { CONFIG, getSetting, setSetting } from './config.js';
 import { store, ensureActiveTrip, getActiveId, setActiveId, askPersist, isKid, isAdult, findMergeTarget, getMode, startTrip, resumeTrip, endTrip, isDaily, moveDaysToTrip } from './store.js';
-import { getPosition, peekPosition, nearby, searchPlaces, badgeOf, BADGES, shortType, isDemo, demoOff, amapLink, testAMap } from './geo.js';
+import { getPosition, peekPosition, nearby, searchPlaces, inMainland, badgeOf, BADGES, shortType, isDemo, demoOff, amapLink, testAMap } from './geo.js';
 import { compressImage, videoThumb, startRecorder, blobDims } from './media.js';
 import { mountMap, gardenSVG, dayInfo, defaultDay, markerSVG, markerNumSVG, whoText } from './map.js';
 import { allThemes, getTheme, themeIcon, itemIcon, ITEMS, GROUNDS, listCustom, saveCustom, deleteCustom } from './themes.js';
@@ -244,7 +244,7 @@ function bindPlaceSearch(input, box, near, onChoose, onType) {
       if (my !== seq) return;
       box.innerHTML = list.length
         ? list.map((p, i) => `<button type="button" class="sug" data-i="${i}"><span class="pl-ic">${icon(BADGES[badgeOf(p.type)].icon)}</span><span class="pl-t">${esc(p.name)}<small>${esc(p.address || shortType(p.type))}${p.dist != null ? ` · ${p.dist < 1000 ? p.dist + ' 公尺' : (p.dist / 1000).toFixed(1) + ' 公里'}` : ''}</small></span></button>`).join('')
-        : `<p class="sug-msg">${getSetting('amapKey') || isDemo() ? '找不到符合的地點，可以直接用你打的名字打卡。' : '還沒設定高德金鑰，沒辦法搜尋；可以直接用你打的名字打卡。'}</p>`;
+        : `<p class="sug-msg">找不到符合的地點，可以直接用你打的名字打卡。</p>`;
       box.querySelectorAll('.sug').forEach(b => b.onclick = () => { const p = list[+b.dataset.i]; input.value = p.name; box.innerHTML = ''; onChoose(p); });
     }, 350);
   });
@@ -252,7 +252,7 @@ function bindPlaceSearch(input, box, near, onChoose, onType) {
 
 function pickPlace(pos, list) {
   const L = list.slice(0, 15);
-  const noKey = !getSetting('amapKey') && !isDemo();
+  const noKey = false;
   let chosen = null;
   openSheet(`<h2 class="h2">你在哪裡？</h2>
     <input id="manual" class="inp" placeholder="輸入地點名稱搜尋，例如：寶安圖書館" autocomplete="off" enterkeyhint="search">
@@ -634,7 +634,7 @@ async function mapView(id) {
   const scope = !id && getSetting('mapScope') === 'all' ? 'all' : 'pack';
   const h = Math.max(320, Math.min(560, window.innerHeight - 330));
   const scopeSeg = `<div class="seg scopeseg" role="group" aria-label="地圖範圍"><button data-sc="pack" class="${scope === 'pack' ? 'on' : ''}">這一包</button><button data-sc="all" class="${scope === 'all' ? 'on' : ''}">全部足跡</button></div>`;
-  const keyNote = getSetting('amapKey') ? '<div id="mapnote"></div>' : `<div class="mapnote">${icon('map')}<div><b>現在是插畫地圖</b><p>到「設定」填入高德地圖的 Key 和安全密鑰，就會換成真實的城市地圖，並顯示你現在的位置（藍點）。</p><a class="btn sm main" href="#settings">去設定</a></div></div>`;
+  const keyNote = '<div id="mapnote"></div>';
   const bindScope = () => view.querySelectorAll('[data-sc]').forEach(b => b.onclick = () => {
     if (b.dataset.sc === scope && !id) return;
     setSetting('mapScope', b.dataset.sc);
@@ -643,8 +643,10 @@ async function mapView(id) {
   // 地圖畫好之後，再放上「我在這裡」
   const showMe = () => {
     const ctl = curMap, note = $('#mapnote');
-    if (ctl && ctl.amapFailed && note) { note.className = 'mapnote warn'; note.innerHTML = `${icon('map')}<div><b>高德地圖沒有載入成功</b><p>所以先用插畫地圖。到「設定」按「測試」，會告訴你是哪裡要修改。</p><a class="btn sm main" href="#settings">去設定測試</a></div>`; return; }
-    if (!ctl || ctl.kind !== 'amap') return;
+    if (ctl && note && ctl.osmFailed) { note.className = 'mapnote warn'; note.innerHTML = `${icon('map')}<div><b>開放地圖沒有載入成功</b><p>先用插畫地圖。請確認網路正常，稍後再打開地圖試試。</p></div>`; return; }
+    if (ctl && note && (ctl.kind === 'svg' || ctl.kind === 'none') && !ctl.amapFailed && ctl.prov === 'none') { note.className = 'mapnote'; note.innerHTML = `${icon('map')}<div><b>還不知道你在哪裡</b><p>允許蜂采使用定位，或打卡之後，這裡就會換成真實地圖。iPhone：「設定 → 隱私權與安全性 → 定位服務 → Safari 網站」選「使用 App 期間」。</p></div>`; return; }
+    if (ctl && ctl.amapFailed && note) { note.className = 'mapnote warn'; note.innerHTML = `${icon('map')}<div><b>高德地圖沒有載入成功</b><p>${ctl.kind === 'osm' ? '先改用免費的開放地圖。' : '所以先用插畫地圖。'}到「設定」按「測試」，會告訴你是哪裡要修改。</p><a class="btn sm main" href="#settings">去設定測試</a></div>`; if (ctl.kind !== 'osm') return; }
+    if (!ctl || (ctl.kind !== 'amap' && ctl.kind !== 'osm')) return;
     peekPosition().then(p => { if (curMap === ctl) ctl.setMe(p); }).catch(() => { if (note && curMap === ctl) { note.className = 'mapnote'; note.innerHTML = `${icon('map')}<div><b>沒有拿到你的位置</b><p>請到 iPhone「設定 → 隱私權與安全性 → 定位服務 → Safari 網站」選「使用 App 期間」，再重新打開蜂采。</p></div>`; } });
   };
 
@@ -1227,7 +1229,7 @@ async function settings() {
     </section>
     <section class="sec">
       <h2 class="h2">高德地圖（真實地圖、附近地點）</h2>
-      <p class="muted sm">到高德開放平台建立「Web 端（JS API）」應用後，把 Key 和安全密鑰貼在這裡。只存在這支手機上。</p>
+      <p class="muted sm">在中國大陸使用：到高德開放平台建立「Web 端（JS API）」應用後，把 Key 和安全密鑰貼在這裡。只存在這支手機上。<br>沒填的話，或在台灣、港澳和國外，會自動用免費的開放地圖（OpenStreetMap）；大陸的地點資料高德比較齊全。</p>
       <label class="lbl" for="ak">Key</label><input id="ak" class="inp" value="${esc(getSetting('amapKey'))}" autocomplete="off" autocapitalize="off" spellcheck="false">
       <label class="lbl" for="as">安全密鑰</label><input id="as" class="inp" value="${esc(getSetting('amapSec'))}" autocomplete="off" autocapitalize="off" spellcheck="false">
       <div class="row"><button class="btn main sm" id="saveKey">儲存</button><button class="btn sm" id="testKey">測試</button></div>

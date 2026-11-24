@@ -3,7 +3,7 @@
 // 之後換成雲端儲存、換地圖服務、調整上限，主要改這裡。
 // ==========================================================
 export const CONFIG = {
-  version: '0.9.0',
+  version: '0.9.1',
   storage: 'local',      // 'local'＝存在手機本機；之後做好雲端改成 'cloud'
   map: 'amap',           // 地點搜尋服務：目前是高德；國外版之後可加其他服務
   nearbyRadius: 600,     // 搜尋附近地點的範圍（公尺）
@@ -13,6 +13,17 @@ export const CONFIG = {
   kidRecordSec: 10,      // 兒童錄音秒數
   adultRecordSec: 30,    // 大人錄音秒數
   // 高德地圖的底圖樣式：正常版、可愛版（可換成 amap://styles/graffiti 塗鴉風、fresh 草色青等）
+  // 台灣、港澳、國外用的免費開放地圖（OpenStreetMap＋CARTO 圖磚）；之後要換成 Google 地圖也從這裡改
+  osm: {
+    js: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+    css: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+    tiles: {
+      normal: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+      cute: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+      night: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+    },
+    attribution: '© OpenStreetMap © CARTO'
+  },
   mapStyles: { normal: 'amap://styles/normal', cute: 'amap://styles/macaron', night: 'amap://styles/darkblue' },
   kidGardenGoal: 5,      // 兒童花園：每幾個章算「開滿一片」
   // 一鍵短片
