@@ -12,23 +12,32 @@ const DB_NAME = 'fengcai-v1';
 let dbp = null;
 const P = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 
+// 主要資料庫（旅行、打卡、照片）。不指定版本：已經有的就照原樣打開，不會升級，
+// 所以舊版畫面還開著（例如背景裡的主畫面 App）也不會卡住。
 function db() {
   if (!dbp) {
-    // 版本 2：加上時光膠囊（capsules）
-    const r = indexedDB.open(DB_NAME, 2);
+    const r = indexedDB.open(DB_NAME);
     r.onupgradeneeded = () => {
       const d = r.result, has = n => d.objectStoreNames.contains(n);
       if (!has('trips')) d.createObjectStore('trips', { keyPath: 'id' });
       if (!has('checkins')) d.createObjectStore('checkins', { keyPath: 'id' }).createIndex('trip', 'tripId');
       if (!has('media')) d.createObjectStore('media', { keyPath: 'id' }).createIndex('checkin', 'checkinId');
-      if (!has('capsules')) d.createObjectStore('capsules', { keyPath: 'id' });
     };
-    r.onblocked = () => console.warn('蜂采在另一個分頁開著，請關掉其他分頁再重新打開');
-    dbp = P(r);
+    dbp = P(r).then(d => { d.onversionchange = () => { d.close(); dbp = null; }; return d; });
   }
   return dbp;
 }
-async function os(name, mode = 'readonly') { const d = await db(); return d.transaction(name, mode).objectStore(name); }
+// 時光膠囊放在自己的資料庫，加功能時不用動到上面那一個
+let capp = null;
+function capDb() {
+  if (!capp) {
+    const r = indexedDB.open('fengcai-capsules');
+    r.onupgradeneeded = () => { const d = r.result; if (!d.objectStoreNames.contains('capsules')) d.createObjectStore('capsules', { keyPath: 'id' }); };
+    capp = P(r).then(d => { d.onversionchange = () => { d.close(); capp = null; }; return d; });
+  }
+  return capp;
+}
+async function os(name, mode = 'readonly') { const d = await (name === 'capsules' ? capDb() : db()); return d.transaction(name, mode).objectStore(name); }
 const all = async n => P((await os(n)).getAll());
 const byIdx = async (n, idx, key) => P((await os(n)).index(idx).getAll(key));
 const get = async (n, id) => (id ? P((await os(n)).get(id)) : undefined);
