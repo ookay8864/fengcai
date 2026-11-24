@@ -63,7 +63,7 @@ function smooth(xy) {
 
 // ---------- 打卡標記：花＝大人、蜜蜂＝孩子、蜜蜂採花＝一起 ----------
 // 之後換風格：改這一段的圖形；顏色在 theme.css 的 --mk-* 變數
-const BEE = `<g class="bee-g"><ellipse cx="-6" cy="-7" rx="7" ry="4.5" transform="rotate(-25 -6 -7)" class="bee-w"/><ellipse cx="6" cy="-7" rx="7" ry="4.5" transform="rotate(25 6 -7)" class="bee-w"/><ellipse cx="0" cy="0" rx="8" ry="9.5" class="bee-b"/><path d="M-7.5 -2h15M-7.5 3h15" class="bee-s"/><circle cx="0" cy="-10" r="4.5" class="bee-h"/></g>`;
+export const BEE = `<g class="bee-g"><ellipse cx="-6" cy="-7" rx="7" ry="4.5" transform="rotate(-25 -6 -7)" class="bee-w"/><ellipse cx="6" cy="-7" rx="7" ry="4.5" transform="rotate(25 6 -7)" class="bee-w"/><ellipse cx="0" cy="0" rx="8" ry="9.5" class="bee-b"/><path d="M-7.5 -2h15M-7.5 3h15" class="bee-s"/><circle cx="0" cy="-10" r="4.5" class="bee-h"/></g>`;
 // 花的造型：flower 圓瓣花（預設）、sakura 櫻花瓣、clover 四葉草
 // 明信片換配色時會換造型；中心圓（mk-center）位置不變，號碼一樣放在中間
 let SHAPE = 'flower';

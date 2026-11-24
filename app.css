@@ -575,3 +575,83 @@ body.kid{background:var(--kid-bg) var(--pattern);color:var(--kid-ink)}
 /* 開放地圖的可愛／夜空：用濾鏡調圖磚顏色 */
 .mapwrap.osm-cute .leaflet-tile-pane{filter:sepia(.25) saturate(1.3) brightness(1.06) hue-rotate(-8deg)}
 .mapwrap.osm-night .leaflet-tile-pane{filter:invert(1) hue-rotate(195deg) brightness(.82) contrast(.92) saturate(.6)}
+
+/* ---------- v1.0 時光膠囊 ---------- */
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{padding:9px 14px;border-radius:999px;border:2px solid var(--line);background:var(--card);color:var(--ink);font:700 14px var(--font);cursor:pointer}
+.chips button.on{background:var(--honey);border-color:var(--honey);color:var(--hive)}
+.hivebtn{display:inline-flex;align-items:center;gap:6px;margin-left:auto;margin-right:8px;text-decoration:none}
+.hivebtn .ic{width:18px;height:18px}
+.hive{margin:14px auto 6px;max-width:380px}
+.hv-row{display:flex;gap:4%;justify-content:flex-start}
+.hv-row+.hv-row{margin-top:-6%}
+.hv-row.odd{padding-left:16%}
+.hv-cell{width:30%;flex-shrink:0;border:0;background:none;padding:0;cursor:pointer;display:flex;flex-direction:column;align-items:center;color:var(--ink);font:inherit}
+.hx-slot{display:block;width:100%}
+.hex{display:block;width:100%;height:auto}
+.hx-wax{fill:var(--cap-wax)}
+.hx-fill{fill:var(--cap-honey)}
+.hx-wave{fill:none;stroke:var(--cap-honey-hi);stroke-width:2}
+.hx-rim{fill:none;stroke:var(--cap-rim);stroke-width:4;stroke-linejoin:round}
+.hx-shine{fill:none;stroke:#fff;stroke-opacity:.6;stroke-width:3;stroke-linecap:round}
+.hx-open{fill:var(--cap-honey)}
+.hx-honey{fill:var(--cap-honey-hi)}
+.hx-add{fill:var(--card);stroke:var(--cap-rim);stroke-width:3;stroke-dasharray:7 6}
+.hx-plus{stroke:var(--cap-rim);stroke-width:6;stroke-linecap:round}
+.hv-lbl{margin-top:2px;font:800 12.5px/1.3 var(--font);text-align:center;min-height:30px}
+.hv-lbl small{display:block;font-weight:600;font-size:11px;color:var(--ink-soft)}
+.hv-cell.due .hex{animation:capglow 1.6s ease-in-out infinite}
+@keyframes capglow{50%{filter:drop-shadow(0 0 10px var(--cap-honey-hi))}}
+.cap-note{display:flex;gap:8px;align-items:flex-start;margin-top:14px;padding:10px 12px;border-radius:var(--radius);background:var(--card);font-size:13px;color:var(--ink-soft)}
+.cap-note .ic{width:20px;height:20px;color:var(--honey-deep);flex-shrink:0}.cap-note p{margin:0}
+.cap-sheet{width:110px;margin:4px auto 0}
+.cap-sec{margin:16px 0}
+.cap-sec .h2{margin:0 0 8px}
+.cap-items{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+.cap-items:empty{display:none}
+.cap-it{position:relative;aspect-ratio:1;border-radius:12px;overflow:hidden;background:var(--honey-soft)}
+.cap-it img{width:100%;height:100%;object-fit:cover}
+.cap-it>i{position:absolute;left:6px;bottom:6px;color:#fff}.cap-it>i .ic{width:18px;height:18px}
+.cap-it button{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:16px;line-height:1;cursor:pointer}
+.cap-au{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--honey-deep)}
+.cap-au .ic{width:26px;height:26px}
+.btn.rec{background:var(--petal);border-color:var(--petal);color:#fff}
+.row.wrap{flex-wrap:wrap}
+#cnote{margin-top:10px;resize:vertical}
+.cap-when{margin:8px 2px 0;font:700 14px var(--font);color:var(--honey-deep)}
+.btn.big{width:100%;padding:14px;font-size:17px}
+/* 封蠟、收到、打開的動畫 */
+.cap-anim{position:fixed;inset:0;z-index:80;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:var(--cap-backdrop);color:#fff;text-align:center;padding:24px}
+.cap-anim p{font:800 22px/1.4 var(--font);margin:0}
+.cap-anim small{font-size:15px;opacity:.85}
+.ca-hex{position:relative;width:180px}
+.cap-anim.seal .ca-hex{animation:capdrop .9s cubic-bezier(.2,.9,.3,1.3) both}
+@keyframes capdrop{0%{transform:translateY(-60vh) scale(.6)}100%{transform:none}}
+.cap-anim.arrive .ca-hex{animation:capin 1s ease-out both}
+@keyframes capin{0%{transform:scale(.2) rotate(-30deg);opacity:0}100%{transform:none;opacity:1}}
+.cap-anim.open .ca-hex{animation:capglow 1.4s ease-in-out infinite}
+.ca-bee{position:absolute;right:-30px;top:-40px;color:var(--hive);animation:capbee 2.4s ease-in-out infinite}
+.ca-bee svg{width:64px;height:64px}
+@keyframes capbee{0%,100%{transform:translate(0,0) rotate(-8deg)}50%{transform:translate(-20px,14px) rotate(8deg)}}
+.cap-anim.melt .hx-wax{animation:capmelt 1.4s ease-in forwards}
+.cap-anim.melt .ca-bee{animation:capbeego 1.2s ease-in forwards}
+@keyframes capmelt{to{fill:var(--cap-honey-hi);opacity:.4}}
+@keyframes capbeego{to{transform:translate(-90px,60px) scale(.8)}}
+.ca-drip{position:absolute;left:50%;bottom:6%;width:14px;height:0;margin-left:-7px;border-radius:0 0 7px 7px;background:var(--cap-honey-hi)}
+.cap-anim.melt .ca-drip{animation:capdrip 1.4s ease-in forwards}
+@keyframes capdrip{to{height:70px}}
+.cap-anim .btn{min-width:180px}
+/* 膠囊內容 */
+.cap-open .cap-hd{margin:0;font:800 20px var(--font);color:var(--honey-deep)}
+.cap-meta{margin:4px 0 12px;font-size:13px;color:var(--ink-soft)}
+.cap-text{font-size:17px;line-height:1.7;margin:0 0 12px;white-space:normal}
+.cap-media{display:grid;gap:10px;margin-bottom:12px}
+.cap-media img,.cap-media video{width:100%;border-radius:12px;display:block}
+.cap-audio{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:12px;background:var(--honey-soft)}
+.cap-audio .ic{width:22px;height:22px;color:var(--honey-deep);flex-shrink:0}.cap-audio audio{flex:1;min-width:0}
+/* 月曆上的膠囊日子 */
+.cd-cap{position:absolute;right:3px;top:2px;width:9px;height:10px;background:var(--cap-wax);clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)}
+.cd-cap.lg{position:static;display:inline-block}
+/* 孩子頁：給未來的自己 */
+.kfuture{display:flex;align-items:center;justify-content:center;gap:8px;margin:8px auto 0;padding:12px 18px;border-radius:999px;background:var(--card);color:var(--ink);font:800 16px var(--font);text-decoration:none;width:max-content;box-shadow:var(--shadow)}
+.kfuture svg{width:24px;height:24px}

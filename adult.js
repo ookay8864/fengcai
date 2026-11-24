@@ -9,6 +9,7 @@ import { collect, renderPostcard, DEFAULT_PC, PALETTES, TEMPLATES, SIZES } from 
 import { makeVideo, estimate, canMakeVideo, selectVisuals, layoutItems, stopDuration, voiceLen, isLand, PER_STOP } from './video.js';
 import { TRACKS } from './music.js';
 import { $, esc, toast, confirmDlg, inputDlg, fmtTime, fmtDate, dayKey, uid, icon } from './ui.js';
+import { initCapsule, hiveView, createView, checkDue, capsuleDays } from './capsule.js';
 
 const view = $('#view'), sheet = $('#sheet'), sb = $('#sheetbody');
 const MAX = CONFIG.maxVisualPerPlace;
@@ -24,7 +25,7 @@ async function route(keepScroll = false) {
   freeUrls();
   if (curMap) { curMap.destroy(); curMap = null; }
   const [r, id] = location.hash.slice(1).split('/');
-  const tab = r === 'trip' || r === 'c' || r === 'trips' || r === 'card' || r === 'video' ? 'trips' : r === 'settings' ? 'settings' : r === 'map' ? 'map' : 'home';
+  const tab = r === 'trip' || r === 'c' || r === 'trips' || r === 'card' || r === 'video' || r === 'hive' || r === 'capsule' ? 'trips' : r === 'settings' ? 'settings' : r === 'map' ? 'map' : 'home';
   document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('on', a.dataset.t === tab));
   try {
     if (r === 'trips') await trips();
@@ -34,6 +35,8 @@ async function route(keepScroll = false) {
     else if (r === 'map') await mapView(id);
     else if (r === 'card') await cardView(id);
     else if (r === 'video') await videoView(id);
+    else if (r === 'hive') await hiveView();
+    else if (r === 'capsule') await createView(id);
     else await home();
   } catch (e) {
     console.error(e);
@@ -42,6 +45,10 @@ async function route(keepScroll = false) {
   if (!keepScroll) window.scrollTo(0, 0);
 }
 const rerender = () => route(true);
+// 時光膠囊用到的共用工具；打開蜂采時檢查有沒有到期的膠囊
+initCapsule({ view, ou, overlay: (h) => overlay(h), openSheet: (h) => openSheet(h), closeSheet: () => closeSheet(), rerender });
+setTimeout(() => checkDue().catch(e => console.warn(e)), 300);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDue().catch(() => {}); });
 window.addEventListener('hashchange', () => { document.querySelector('.snack')?.remove(); route(); });
 
 // ---------- 共用：打卡卡片 ----------
@@ -150,12 +157,14 @@ function nameCard(t, cs, undo) {
     <div class="namesug">${sug.map((s, i) => `<button data-s="${i}">${esc(s)}</button>`).join('')}</div>
     <label class="lbl" for="nmin">或自己寫</label><input id="nmin" class="inp" maxlength="24" placeholder="${esc(t.name)}">
     <div class="row"><button class="btn" id="nmskip">先不用</button><button class="btn main" id="nmok">${icon('check')}好</button></div>
+    <a class="linkbtn" href="#capsule/new" id="nmcap" style="display:block;margin:10px auto 0;text-align:center">${icon('flower')}幫這趟旅行埋一顆時光膠囊</a>
     <button class="linkbtn" id="nmundo" style="display:block;margin:8px auto 0">不小心滑到的？回到旅行</button>`);
   const save = async name => { if (name) { t.name = name; t.nameAuto = false; await store.saveTrip(t); toast(`已命名為「${name}」`); } ov.remove(); rerender(); };
   ov.querySelectorAll('[data-s]').forEach(b => b.onclick = () => save(sug[+b.dataset.s]));
   ov.querySelector('#nmok').onclick = () => save(ov.querySelector('#nmin').value.trim());
   ov.querySelector('#nmskip').onclick = () => save('');
   ov.querySelector('#nmundo').onclick = () => { ov.remove(); undo(); };
+  ov.querySelector('#nmcap').onclick = () => { ov.remove(); };
 }
 // 底部提示＋一個按鈕（例如「復原」）
 function snack(msg, label, fn, ms = 5000) {
@@ -415,6 +424,8 @@ async function trips() {
     if (isDaily(n.t)) o.daily = true; else o.trip = true;
     if (!o.ids.includes(n.t.id)) isDaily(n.t) ? o.ids.push(n.t.id) : o.ids.unshift(n.t.id);
   }));
+  const capDays = await capsuleDays();
+  Object.keys(capDays).forEach(k => { const o = marks[k] || (marks[k] = { trip: false, daily: false, ids: [] }); o.cap = true; });
   if (!calYM) { const d = new Date(); calYM = [d.getFullYear(), d.getMonth()]; }
   const curTrip = mode === 'trip' && nodes.find(n => n.t.id === act && !isDaily(n.t));
   // 時間軸：旅行包一項（放在出發那天）；日常每天一項；依月份分段，新的在上面
@@ -431,12 +442,12 @@ async function trips() {
   const dailyOf = (y, m) => nodes.find(n => isDaily(n.t) && n.t.id === `daily-${y}-${String(m + 1).padStart(2, '0')}`);
   const tripCount = entries.filter(e => e.kind === 'trip' && e.n.cs.length).length;
   view.innerHTML = `
-    <div class="row between" style="margin-top:4px"><h1 class="h1" style="margin:0">我的旅行包</h1>${curTrip ? `<a class="tag on" href="#trip/${act}">旅行中</a>` : `<button class="btn main sm" id="new">${icon('plus')}開始旅行</button>`}</div>
+    <div class="row between" style="margin-top:4px"><h1 class="h1" style="margin:0">我的旅行包</h1><a class="btn sm hivebtn" href="#hive" aria-label="時光膠囊"><svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M12 2.5l8 4.6v9.8l-8 4.6-8-4.6V7.1z" fill="var(--cap-wax)" stroke="var(--cap-rim)" stroke-width="1.6"/></svg>膠囊</a>${curTrip ? `<a class="tag on" href="#trip/${act}">旅行中</a>` : `<button class="btn main sm" id="new">${icon('plus')}開始旅行</button>`}</div>
     <section class="calbox">
       <div class="calhead"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="選擇年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></div>
       <div class="calgrid wk">${WKS.map(w => `<span>${w}</span>`).join('')}</div>
       <div class="calgrid" id="calgrid"></div>
-      <div class="callegend"><span><i class="lg-fl">${FLOWER_BG}</i>旅行</span><span><i class="lg-dot"></i>日常</span><button class="linkbtn" id="caltoday">回到本月</button></div>
+      <div class="callegend"><span><i class="lg-fl">${FLOWER_BG}</i>旅行</span><span><i class="lg-dot"></i>日常</span><span><i class="cd-cap lg"></i>膠囊</span><button class="linkbtn" id="caltoday">回到本月</button></div>
     </section>
     ${entries.length ? `<div class="tl-top"><h2 class="h2" style="margin:0">時間軸</h2>${tripCount ? `<button class="btn sm" id="expall">${icon('flower')}全部展開</button>` : ''}</div>
       ${months.map(mo => { const dn = dailyOf(mo.y, mo.m); return `<section class="tl-sec">
@@ -450,7 +461,7 @@ async function trips() {
     let h = '<span></span>'.repeat(first);
     for (let d = 1; d <= n; d++) {
       const k = `${y}-${m + 1}-${d}`, o = marks[k];
-      h += `<button class="cd${o?.trip ? ' has-trip' : ''}${o?.daily ? ' has-daily' : ''}${k === today ? ' today' : ''}" data-dk="${k}" ${o ? '' : 'tabindex="-1"'}>${o?.trip ? FLOWER_BG : ''}<span>${d}</span></button>`;
+      h += `<button class="cd${o?.trip ? ' has-trip' : ''}${o?.daily ? ' has-daily' : ''}${o?.cap ? ' has-cap' : ''}${k === today ? ' today' : ''}" data-dk="${k}" ${o ? '' : 'tabindex="-1"'}>${o?.trip ? FLOWER_BG : ''}<span>${d}</span>${o?.cap ? '<i class="cd-cap" aria-label="時光膠囊"></i>' : ''}</button>`;
     }
     $('#calgrid').innerHTML = h;
     $('#calgrid').querySelectorAll('.cd').forEach(b => b.onclick = () => goDay(b.dataset.dk));
@@ -472,6 +483,7 @@ async function trips() {
   const goDay = k => {
     const o = marks[k];
     if (!o) { toast('這天沒有紀錄'); return; }
+    if (o.cap && !o.ids.length) { location.hash = 'hive'; return; }
     const id = o.ids[0], el = view.querySelector(`.tnode[data-node="${id}"]`);
     if (!el) {
       const row = view.querySelector(`.tl-dayrow[data-dk="${k}"]`);

@@ -14,13 +14,16 @@ const P = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.
 
 function db() {
   if (!dbp) {
-    const r = indexedDB.open(DB_NAME, 1);
+    // 版本 2：加上時光膠囊（capsules）
+    const r = indexedDB.open(DB_NAME, 2);
     r.onupgradeneeded = () => {
-      const d = r.result;
-      d.createObjectStore('trips', { keyPath: 'id' });
-      d.createObjectStore('checkins', { keyPath: 'id' }).createIndex('trip', 'tripId');
-      d.createObjectStore('media', { keyPath: 'id' }).createIndex('checkin', 'checkinId');
+      const d = r.result, has = n => d.objectStoreNames.contains(n);
+      if (!has('trips')) d.createObjectStore('trips', { keyPath: 'id' });
+      if (!has('checkins')) d.createObjectStore('checkins', { keyPath: 'id' }).createIndex('trip', 'tripId');
+      if (!has('media')) d.createObjectStore('media', { keyPath: 'id' }).createIndex('checkin', 'checkinId');
+      if (!has('capsules')) d.createObjectStore('capsules', { keyPath: 'id' });
     };
+    r.onblocked = () => console.warn('蜂采在另一個分頁開著，請關掉其他分頁再重新打開');
     dbp = P(r);
   }
   return dbp;
@@ -34,6 +37,18 @@ const del = async (n, id) => P((await os(n, 'readwrite')).delete(id));
 
 const blobToData = b => new Promise((res, rej) => { const f = new FileReader(); f.onload = () => res(f.result); f.onerror = () => rej(f.error); f.readAsDataURL(b); });
 const dataToBlob = async d => (d ? (await fetch(d)).blob() : null);
+
+// 膠囊 ⇄ 可以存成檔案的格式（照片、影片、聲音轉成文字）
+export async function capsuleToData(c) {
+  const media = [];
+  for (const m of c.media || []) media.push({ ...m, blob: await blobToData(m.blob), thumb: m.thumb ? await blobToData(m.thumb) : null });
+  return { ...c, media };
+}
+export async function capsuleFromData(c) {
+  const media = [];
+  for (const m of c.media || []) media.push({ ...m, blob: await dataToBlob(m.blob), thumb: await dataToBlob(m.thumb) });
+  return { ...c, media };
+}
 
 export const LocalStore = {
   async listTrips() { return (await all('trips')).sort((a, b) => b.createdAt - a.createdAt); },
@@ -51,11 +66,19 @@ export const LocalStore = {
   saveMedia: m => put('media', m),
   deleteMedia: id => del('media', id),
 
-  // 備份：整包資料（含照片、影片、聲音）匯出成一個檔案
+  // 時光膠囊：內容（照片、影片、聲音）直接放在膠囊裡
+  async listCapsules() { return (await all('capsules')).sort((a, b) => a.openAt - b.openAt); },
+  getCapsule: id => get('capsules', id),
+  saveCapsule: c => put('capsules', c),
+  deleteCapsule: id => del('capsules', id),
+
+  // 備份：整包資料（含照片、影片、聲音、時光膠囊）匯出成一個檔案
   async exportAll() {
     const media = [];
     for (const m of await all('media')) media.push({ ...m, blob: await blobToData(m.blob), thumb: m.thumb ? await blobToData(m.thumb) : null });
-    const data = { app: 'fengcai', v: 1, at: Date.now(), trips: (await all('trips')).map(({ pcCache, ...t }) => t), checkins: await all('checkins'), media };
+    const capsules = [];
+    for (const c of await all('capsules')) capsules.push(await capsuleToData(c));
+    const data = { app: 'fengcai', v: 2, at: Date.now(), trips: (await all('trips')).map(({ pcCache, ...t }) => t), checkins: await all('checkins'), media, capsules };
     return new Blob([JSON.stringify(data)], { type: 'application/json' });
   },
   async importAll(file) {
@@ -64,9 +87,10 @@ export const LocalStore = {
     for (const t of data.trips || []) await put('trips', t);
     for (const c of data.checkins || []) await put('checkins', c);
     for (const m of data.media || []) await put('media', { ...m, blob: await dataToBlob(m.blob), thumb: await dataToBlob(m.thumb) });
+    for (const c of data.capsules || []) await put('capsules', await capsuleFromData(c));
     return { trips: (data.trips || []).length, checkins: (data.checkins || []).length };
   },
-  async clearAll() { for (const n of ['media', 'checkins', 'trips']) await P((await os(n, 'readwrite')).clear()); }
+  async clearAll() { for (const n of ['media', 'checkins', 'trips', 'capsules']) await P((await os(n, 'readwrite')).clear()); }
 };
 
 // 預留：雲端儲存（尚未實作）。之後照 LocalStore 的函式名稱補上即可。

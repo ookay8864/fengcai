@@ -47,6 +47,7 @@ async function idle() {
       <p class="ktip">到了新地方，碰一下吊飾，再按上面的大按鈕</p>
       ${isDemo() ? '<p class="ktip sm">（現在是模擬模式）</p>' : ''}
     </section>
+    <a class="kfuture" href="index.html#capsule/kid"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l8 4.6v9.8l-8 4.6-8-4.6V7.1z" fill="var(--cap-wax)" stroke="var(--cap-rim)" stroke-width="1.6"/></svg>給未來的自己</a>
     <a class="kadult" href="index.html">大人頁面</a>`;
   $('#stamp').onclick = go;
   $('#book').onclick = book;

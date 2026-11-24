@@ -46,6 +46,12 @@
   --sw-off-ink:#B3A994;
   --sw-trip-tint:#FFF3D1; --sw-trip-line:#F7D57A;   /* 旅行中：外框淡蜂蜜色 */
   --sw-daily-tint:#EAF6EC; --sw-daily-line:#A9DDB4; /* 日常：外框淡綠色 */
+  /* 時光膠囊：蜂蠟、蜂蜜、外框、動畫的背景 */
+  --cap-wax:#F3D27A;
+  --cap-honey:#F7B500;
+  --cap-honey-hi:#FFD66B;
+  --cap-rim:#C98A00;
+  --cap-backdrop:rgba(43,27,10,.86);
   /* 地圖上「我在這裡」的藍點 */
   --me-dot:#3B82F6;
   /* 旅行包月曆：有旅行的日子墊一朵淡花 */
