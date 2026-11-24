@@ -55,7 +55,7 @@ export const LocalStore = {
   async exportAll() {
     const media = [];
     for (const m of await all('media')) media.push({ ...m, blob: await blobToData(m.blob), thumb: m.thumb ? await blobToData(m.thumb) : null });
-    const data = { app: 'fengcai', v: 1, at: Date.now(), trips: await all('trips'), checkins: await all('checkins'), media };
+    const data = { app: 'fengcai', v: 1, at: Date.now(), trips: (await all('trips')).map(({ pcCache, ...t }) => t), checkins: await all('checkins'), media };
     return new Blob([JSON.stringify(data)], { type: 'application/json' });
   },
   async importAll(file) {

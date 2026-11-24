@@ -482,4 +482,25 @@ body.kid{background:var(--kid-bg) var(--pattern);color:var(--kid-ink)}
 .namesug{display:grid;gap:8px}
 .namesug button{padding:12px 14px;border-radius:14px;border:2px solid var(--line);background:var(--bg);color:var(--ink);font:700 15px var(--font);text-align:left;cursor:pointer}
 .snack{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;align-items:center;gap:14px;padding:12px 16px;border-radius:16px;background:var(--hive);color:#fff;font:600 14px var(--font);z-index:60;box-shadow:var(--shadow);max-width:92vw}
+.snack span,.snack button{white-space:nowrap}
+.snack{width:max-content}
 .snack button{border:0;background:none;color:var(--honey);font:800 14px var(--font);cursor:pointer;padding:4px}
+
+/* ---------- v0.8.2 旅行包裡的明信片 ---------- */
+.tn-pc{display:block;position:relative;margin:2px 0 10px;border-radius:14px;overflow:hidden;background:var(--honey-soft);text-decoration:none;min-height:120px}
+.tn-pc img{display:block;width:100%;height:auto}
+.tn-pc-load{display:flex;align-items:center;justify-content:center;gap:6px;height:160px;color:var(--ink-soft);font:600 14px var(--font)}
+.tn-pc-load .ic{width:20px;height:20px;animation:spin 1.6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.tn-pc-hint{display:flex;align-items:center;justify-content:center;gap:5px;padding:8px 10px;background:var(--card);color:var(--honey-deep);font:700 12.5px var(--font);border-top:1px solid var(--line)}
+.tn-pc-hint .ic{width:15px;height:15px}
+.tn-pc.big{margin:10px 0 14px;box-shadow:var(--shadow)}
+
+/* ---------- v0.8.2 開關：所在那一邊彩色，另一邊灰色 ---------- */
+.modebar{background:var(--sw-daily-tint);border-color:var(--sw-daily-line)}
+.modebar.trip{background:var(--sw-trip-tint);border-color:var(--sw-trip-line)}
+.mswitch,.mswitch.is-trip{background:var(--sw-off)}
+.ms-k{background:var(--sw-daily);box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.mswitch.is-trip .ms-k{background:var(--sw-trip)}
+.ms-l,.ms-r{color:var(--sw-off-ink)}
+.mswitch.is-trip .ms-l,.mswitch:not(.is-trip) .ms-r{color:#fff}

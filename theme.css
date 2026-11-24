@@ -40,8 +40,12 @@
   --mk-badge:#FFFFFF;
   /* 首頁的旅行／日常開關：旅行＝蜂蜜色、日常＝綠色 */
   --sw-trip:#F7B500;
-  --sw-daily:#7CC48A;
+  --sw-daily:#5DB872;
   --sw-daily-ink:#2D7A43;
+  --sw-off:#ECE6DA;          /* 沒選的那一邊：灰 */
+  --sw-off-ink:#B3A994;
+  --sw-trip-tint:#FFF3D1; --sw-trip-line:#F7D57A;   /* 旅行中：外框淡蜂蜜色 */
+  --sw-daily-tint:#EAF6EC; --sw-daily-line:#A9DDB4; /* 日常：外框淡綠色 */
   /* 旅行包月曆：有旅行的日子墊一朵淡花 */
   --cal-flower:#FCE3A1;
   --cal-flower-c:#FFF1C9;
@@ -128,6 +132,9 @@
     --map-bg:#241909;
     --map-grid:#33250F;
     --cal-flower:#5A4212;
+    --sw-off:#3A2C18; --sw-off-ink:#8C7A5C;
+    --sw-trip-tint:#3A2A0C; --sw-trip-line:#6B4E10;
+    --sw-daily-tint:#16301C; --sw-daily-line:#2F6A3C;
     --cal-flower-c:#6E5418;
   }
 }
