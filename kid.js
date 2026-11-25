@@ -6,6 +6,7 @@ import { startRecorder } from './media.js';
 import { $, esc, uid, icon, fmtDate, dayKey } from './ui.js';
 import { allThemes, getTheme, guessTheme, themeIcon } from './themes.js';
 import { gardenSVG } from './map.js';
+import { loadBee, beeSVG } from './bee.js';
 
 const k = $('#k');
 let ctx = null, curRec = null, recTimer = null;
@@ -43,7 +44,7 @@ async function idle() {
   const n = (await store.listCheckins(t.id)).filter(isKid).length;
   k.innerHTML = `<header class="ktop"><img src="./logo.svg" class="klogo" alt=""><span class="kname">小小打卡官</span><button class="kbook" id="gd">${icon('flower')}花園</button><button class="kbook" id="book">${icon('honey')}章本 <b>${n}</b></button></header>
     <section class="kcenter">
-      <button class="kstamp" id="stamp">${icon('bee', 'huge')}<span>按我蓋章！</span></button>
+      <button class="kstamp" id="stamp">${beeSVG('huge')}<span>按我蓋章！</span></button>
       <p class="ktip">到了新地方，碰一下吊飾，再按上面的大按鈕</p>
       ${isDemo() ? '<p class="ktip sm">（現在是模擬模式）</p>' : ''}
     </section>
@@ -56,7 +57,7 @@ async function idle() {
 
 async function go() {
   unlockAudio();
-  k.innerHTML = `<section class="kcenter"><div class="kfly">${icon('bee', 'huge')}</div><p class="kbig">小蜜蜂出發找花朵…</p></section>`;
+  k.innerHTML = `<section class="kcenter"><div class="kfly">${beeSVG('huge')}</div><p class="kbig">小蜜蜂出發找花朵…</p></section>`;
   let pos;
   try { pos = await getPosition(); } catch (e) { return lost(e.message); }
   let list = [];
@@ -161,7 +162,7 @@ function already(pos, p, trip, n) {
 }
 
 function lost(msg) {
-  k.innerHTML = `<section class="kcenter">${icon('bee', 'huge')}
+  k.innerHTML = `<section class="kcenter">${beeSVG('huge')}
     <p class="kbig">小蜜蜂迷路了</p><p class="ktip">請大人幫忙看看：</p><p class="ktip sm">${esc(msg)}</p>
     <div class="krow"><button class="kbtn main" id="retry">再試一次</button><button class="kbtn" id="home">回首頁</button></div></section>`;
   $('#retry').onclick = go;
@@ -207,4 +208,5 @@ async function garden(newestId) {
 }
 function toastKid(msg) { const el = document.getElementById('toast'); el.textContent = msg.replace(/（模擬）/g, ''); el.classList.add('show'); clearTimeout(toastKid.t); toastKid.t = setTimeout(() => el.classList.remove('show'), 2200); }
 
+await loadBee();
 idle();

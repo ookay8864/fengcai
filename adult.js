@@ -9,6 +9,7 @@ import { collect, renderPostcard, DEFAULT_PC, PALETTES, TEMPLATES, SIZES } from 
 import { makeVideo, estimate, canMakeVideo, selectVisuals, layoutItems, stopDuration, voiceLen, isLand, PER_STOP } from './video.js';
 import { TRACKS } from './music.js';
 import { $, esc, toast, confirmDlg, inputDlg, fmtTime, fmtDate, dayKey, uid, icon } from './ui.js';
+import { loadBee } from './bee.js';
 import { initCapsule, hiveView, createView, checkDue, capsuleDays, memHTML, fillMemThumbs, viewCapsule, openedCapsules, anniversaryToday, dismissAnniversary, yearWord } from './capsule.js';
 
 const view = $('#view'), sheet = $('#sheet'), sb = $('#sheetbody');
@@ -74,6 +75,23 @@ function cardHTML({ c, m }) {
 }
 const topbar = () => `<header class="top"><img src="./logo.svg" class="logo" alt=""><div><h1>蜂采</h1><p class="sub">飛到哪，甜到哪</p></div></header>`;
 
+// ---------- 孩子打卡：可以開或關（沒有孩子的人就看不到孩子相關的東西） ----------
+const kidOn = () => getSetting('kidMode') !== 'off';
+// 第一次打開時問一次；已經有孩子蓋章的人直接開著
+async function askKidMode() {
+  if (getSetting('kidMode')) return;
+  // 正在打卡或有其他視窗開著時先不問，下次回到首頁再問
+  if (!sheet.hidden || document.querySelector('.dlg, .cap-anim') || (location.hash && location.hash !== '#')) return;
+  for (const t of await store.listTrips()) if ((await store.listCheckins(t.id)).some(isKid)) { setSetting('kidMode', 'on'); return; }
+  const ov = overlay(`<h2 class="h2" style="margin-top:0">${icon('flower')}有孩子跟你一起打卡嗎？</h2>
+    <p class="muted" style="margin-top:0">有的話，孩子會有自己的打卡頁，地圖上也能分開看大人和孩子去過的地方。</p>
+    <div class="row"><button class="btn main" id="kyes">有</button><button class="btn" id="kno">沒有</button></div>
+    <p class="muted sm">之後可以在「設定」裡改。</p>`);
+  ov.classList.add('kidask');
+  ov.querySelector('#kyes').onclick = () => { setSetting('kidMode', 'on'); ov.remove(); rerender(); };
+  ov.querySelector('#kno').onclick = () => { setSetting('kidMode', 'off'); ov.remove(); rerender(); };
+}
+
 // 模擬模式開著時，首頁和地圖上方都會提醒，一鍵就能關
 const demoBar = () => (isDemo() ? `<div class="demobar">${icon('bee')}<span><b>模擬模式開著</b>打卡位置會換成雲南的示範地點</span><button class="btn sm" id="demooff">關閉</button></div>` : '');
 function bindDemoBar() { const b = $('#demooff'); if (b) b.onclick = () => { demoOff(); toast('已關閉模擬模式，之後打卡用你真正的位置'); rerender(); }; }
@@ -99,6 +117,7 @@ async function home() {
     ${recent.length ? `<div class="cards">${recent.map(cardHTML).join('')}</div>` : '<p class="empty">還沒有打卡。出門玩的時候碰一下吊飾，第一朵花就會開在這裡。</p>'}`;
   $('#go').onclick = startCheckin;
   bindModeBar(); bindDemoBar();
+  setTimeout(() => askKidMode().catch(() => {}), 600);
   // 回憶日：膠囊打開滿一年、兩年…的那天
   anniversaryToday().then(ann => {
     const box = $('#annbox'); if (!ann || !box) return;
@@ -610,7 +629,7 @@ const styleSeg = (cur = mapStyle(), attr = 'data-style') => `<div class="seg" ro
 
 // 地圖圖例：三種標記
 const mkIcon = (c, size = 34) => `<svg width="${size}" height="${size}" viewBox="-24 -24 48 48" aria-hidden="true">${markerSVG(0, 0, c, null, 1)}</svg>`;
-const mapLegend = () => `<div class="legend mk-legend"><span>${mkIcon({ adult: true, kid: false }, 26)}大人打卡</span><span>${mkIcon({ adult: false, kid: true }, 26)}孩子蓋章</span><span>${mkIcon({ adult: true, kid: true }, 26)}一起打卡</span></div>`;
+const mapLegend = () => !kidOn() ? '' : `<div class="legend mk-legend"><span>${mkIcon({ adult: true, kid: false }, 26)}大人打卡</span><span>${mkIcon({ adult: false, kid: true }, 26)}孩子蓋章</span><span>${mkIcon({ adult: true, kid: true }, 26)}一起打卡</span></div>`;
 
 // 把地圖放進 box，並綁好天數切換、當天清單、「正常／可愛」與「連起來」
 async function attachMap(box, checkins, height, seed, daily = false, extra = {}) {
@@ -654,11 +673,28 @@ async function attachMap(box, checkins, height, seed, daily = false, extra = {})
   }
 }
 
+// 常去的地方：點花看每一次去的日子
+function visitsSheet(c) {
+  const vs = c._visits || [c], name = c.placeName.replace(/（模擬）/g, '');
+  const md = ts => { const d = new Date(ts); return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`; };
+  openSheet(`<h2 class="h2" style="margin-bottom:2px">${esc(name)}</h2>
+    <p class="muted" style="margin-top:0">去過 ${vs.length} 次・最近一次 ${md(vs[0].ts)}${vs.length > 1 ? `・第一次 ${md(vs[vs.length - 1].ts)}` : ''}</p>
+    <div class="visits">${vs.slice(0, 60).map(v => `<a class="visit" href="#c/${v.id}"><span class="vth" data-vth="${v.id}">${icon('flower')}</span><span><b>${md(v.ts)}</b><small>${fmtTime(v.ts)}・${whoText(v)}</small></span></a>`).join('')}</div>
+    ${vs.length > 60 ? `<p class="muted sm">只列出最近 60 次</p>` : ''}`);
+  sb.querySelectorAll('.visit').forEach(x => x.addEventListener('click', () => closeSheet()));
+  (async () => { for (const v of vs.slice(0, 60)) { const m = (await store.listMedia(v.id)).find(x => x.kind !== 'audio' && (x.thumb || x.kind === 'photo')); const el = sb.querySelector(`[data-vth="${v.id}"]`); if (m && el) el.innerHTML = `<img src="${ou(m.thumb || m.blob)}" alt="">`; } })().catch(() => {});
+}
+
 async function mapView(id) {
   const scope = !id && getSetting('mapScope') === 'all' ? 'all' : 'pack';
   const h = Math.max(320, Math.min(560, window.innerHeight - 330));
   const scopeSeg = `<div class="seg scopeseg" role="group" aria-label="地圖範圍"><button data-sc="pack" class="${scope === 'pack' ? 'on' : ''}">這一包</button><button data-sc="all" class="${scope === 'all' ? 'on' : ''}">全部足跡</button></div>`;
   const keyNote = '<div id="mapnote"></div>';
+  // 全部／大人／孩子（孩子功能關掉時不顯示）
+  const who = kidOn() ? getSetting('mapWho', 'all') : 'all';
+  const whoSeg = kidOn() ? `<div class="seg whoseg" role="group" aria-label="看誰的足跡">${[['all', '全部'], ['adult', '大人'], ['kid', '孩子']].map(([k, n]) => `<button data-who="${k}" class="${who === k ? 'on' : ''}">${n}</button>`).join('')}</div>` : '';
+  const byWho = cs => (who === 'adult' ? cs.filter(isAdult) : who === 'kid' ? cs.filter(isKid) : cs);
+  const bindWho = () => view.querySelectorAll('[data-who]').forEach(b => b.onclick = () => { setSetting('mapWho', b.dataset.who); rerender(); });
   const bindScope = () => view.querySelectorAll('[data-sc]').forEach(b => b.onclick = () => {
     if (b.dataset.sc === scope && !id) return;
     setSetting('mapScope', b.dataset.sc);
@@ -678,16 +714,18 @@ async function mapView(id) {
     const ts = await store.listTrips();
     let all = [];
     for (const t of ts) all = all.concat(await store.listCheckins(t.id));
+    all = byWho(all);
     all.sort((p, q) => p.ts - q.ts);
     const packs = ts.filter(t => !isDaily(t)).length, months = ts.filter(t => isDaily(t)).length;
     view.innerHTML = `<div class="row between"><h1 class="h1">採蜜地圖</h1><span class="muted sm">${all.length} 個地點</span></div>
       ${demoBar()}${scopeSeg}
-      <div class="mapbar">${styleSeg()}</div>
+      <div class="mapbar">${styleSeg()}${whoSeg}</div>
       <div id="mapbox"></div>
-      <p class="muted sm" style="margin:10px 2px 0">所有旅行和日常的打卡都在這裡${all.length ? `：${packs} 趟旅行、${months} 個月的日常` : ''}。點一朵花，可以看那次打卡。</p>
+      <p class="muted sm" style="margin:10px 2px 0">大黃花是旅行；日常是蜂蜜光暈，越常去越亮。拉遠時收成蜂蜜罐，放大到街道時，點光暈中間的小點可以看去過幾次。</p>
       ${mapLegend()}${keyNote}`;
-    bindScope(); bindDemoBar();
-    curMap = await mountMap($('#mapbox'), all, { style: mapStyle(), height: h, seed: 'all-footprints', day: null, noPills: true, wantMe: true, onPick: c => { location.hash = `c/${c.id}`; } });
+    bindScope(); bindDemoBar(); bindWho();
+    curMap = await mountMap($('#mapbox'), all, { style: mapStyle(), height: h, seed: 'all-footprints', day: null, noPills: true, wantMe: true, merge: true, cluster: true,
+      onPick: c => { if (c._n > 1) visitsSheet(c); else location.hash = `c/${c.id}`; } });
     const ctl = curMap;
     view.querySelectorAll('[data-style]').forEach(b => b.onclick = () => { setSetting('mapStyle', b.dataset.style); view.querySelectorAll('[data-style]').forEach(x => x.classList.toggle('on', x === b)); ctl.setStyle(b.dataset.style); });
     showMe();
@@ -1245,11 +1283,15 @@ async function settings() {
       <label class="switch"><span><b>模擬模式</b><br><span class="muted sm">不用出門，用雲南的示範地點試玩打卡流程</span></span><input type="checkbox" id="demo" ${getSetting('demo') === '1' ? 'checked' : ''}></label>
     </section>
     <section class="sec">
+      <h2 class="h2">孩子</h2>
+      <label class="switch"><span><b>孩子打卡</b><br><span class="muted sm">孩子有自己的打卡頁和吊飾；地圖可以分開看大人和孩子。關掉後只會隱藏，紀錄都還在。</span></span><input type="checkbox" id="kidm" ${kidOn() ? 'checked' : ''}></label>
+    </section>
+    <section class="sec">
       <h2 class="h2">NFC 吊飾網址</h2>
       <p class="muted sm">用「NFC Tools」App 把下面的網址寫進吊飾。</p>
       <b>大人吊飾</b><div class="copyrow"><code>${esc(adultUrl)}</code><button class="btn sm" data-copy="${esc(adultUrl)}">複製</button></div>
-      <b style="display:block;margin-top:10px">孩子吊飾</b><div class="copyrow"><code>${esc(kidUrl)}</code><button class="btn sm" data-copy="${esc(kidUrl)}">複製</button></div>
-      <div class="row"><a class="btn sm" href="kid.html">打開兒童頁面看看</a></div>
+      ${kidOn() ? `<b style="display:block;margin-top:10px">孩子吊飾</b><div class="copyrow"><code>${esc(kidUrl)}</code><button class="btn sm" data-copy="${esc(kidUrl)}">複製</button></div>
+      <div class="row"><a class="btn sm" href="kid.html">打開兒童頁面看看</a></div>` : ''}
     </section>
     <section class="sec">
       <h2 class="h2">高德地圖（真實地圖、附近地點）</h2>
@@ -1264,7 +1306,7 @@ async function settings() {
       <p class="muted sm">測試期資料只存在這支手機的 Safari 裡。每趟旅行結束，請匯出一次備份存到「檔案」或 iCloud。${usage ? `（${usage}${persisted ? '，已設定為不自動清除' : ''}）` : ''}</p>
       <div class="row"><button class="btn main sm" id="exp">匯出備份</button><label class="btn sm file">從備份還原<input type="file" accept="application/json,.json" id="imp"></label></div>
     </section>
-    <section class="sec">
+    <section class="sec"${kidOn() ? '' : ' hidden'}>
       <h2 class="h2">自訂花園主題</h2>
       <p class="muted sm">做好的主題會出現在孩子的「今天是什麼冒險？」選單裡。</p>
       <div class="cards">${listCustom().map(t => `<div class="card" style="align-items:center">${themeIcon(t, 44)}<div class="card-main"><div class="card-t">${esc(t.name)}</div></div><button class="btn sm" data-ced="${esc(t.id)}">編輯</button><button class="icon-btn" data-cdel="${esc(t.id)}" aria-label="刪除主題">${icon('trash')}</button></div>`).join('') || '<p class="muted">還沒有自訂主題。</p>'}</div>
@@ -1287,6 +1329,7 @@ async function settings() {
   $('#cnew').onclick = async () => { if (await customEditor()) rerender(); };
   view.querySelectorAll('[data-ced]').forEach(b => b.onclick = async () => { const t = listCustom().find(x => x.id === b.dataset.ced); if (t && await customEditor(t)) rerender(); });
   view.querySelectorAll('[data-cdel]').forEach(b => b.onclick = async () => { if (await confirmDlg('刪除這個自訂主題？已經用這個主題的日子會變回預設草地。', '刪除')) { deleteCustom(b.dataset.cdel); rerender(); } });
+  $('#kidm').onchange = e => { setSetting('kidMode', e.target.checked ? 'on' : 'off'); toast(e.target.checked ? '已開啟孩子打卡' : '已關閉孩子打卡，紀錄都還在'); rerender(); };
   $('#demo').checked = isDemo();
   $('#demo').onchange = e => { if (e.target.checked) setSetting('demo', '1'); else demoOff(); toast(e.target.checked ? '已開啟模擬模式' : '已關閉模擬模式'); };
   view.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast('已複製'); } catch (e) { toast('無法複製，請長按網址手動複製'); } });
@@ -1322,6 +1365,8 @@ async function settings() {
 
 // ---------- 啟動 ----------
 const params = new URLSearchParams(location.search);
+// 先讀小蜜蜂的造型（./bee.svg），再畫畫面
+await loadBee();
 route().then(() => {
   if (params.has('tap')) {
     history.replaceState(null, '', location.pathname + (params.has('demo') ? '?demo=1' : '') + location.hash);

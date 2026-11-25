@@ -46,6 +46,19 @@
   --sw-off-ink:#B3A994;
   --sw-trip-tint:#FFF3D1; --sw-trip-line:#F7D57A;   /* 旅行中：外框淡蜂蜜色 */
   --sw-daily-tint:#EAF6EC; --sw-daily-line:#A9DDB4; /* 日常：外框淡綠色 */
+  /* 日常的花：比旅行小、淡；常去的地方外面一圈光 */
+  --mk-daily-petal:#FBE3A6;
+  --mk-daily-center:#FFF6DA;
+  --mk-daily-edge:#E3B95C;
+  --mk-daily-halo:rgba(255,214,107,.35);
+  /* 全部足跡：日常的蜂蜜光暈、拉遠時的玻璃罐 */
+  --glow-0:rgba(247,181,0,.85);
+  --glow-1:rgba(255,201,60,.4);
+  --jar-glass:#FFF3D1;
+  --jar-honey:#F7B500;
+  --jar-honey-hi:#FFD66B;
+  --jar-lid:#F3D27A;
+  --jar-rim:#A9895A;
   /* 時光膠囊：蜂蠟、蜂蜜、外框、動畫的背景 */
   --cap-wax:#F3D27A;
   --cap-honey:#F7B500;

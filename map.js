@@ -6,10 +6,11 @@
 // 顏色都來自 theme.css 的 --map-* 變數
 // ==========================================================
 import { CONFIG, getSetting } from './config.js';
-import { loadAMap, mapProvider, inMainland, peekPosition, wgs2gcj } from './geo.js';
+import { loadAMap, mapProvider, inMainland, peekPosition, wgs2gcj, distM, regionName } from './geo.js';
 import { esc, dayKey } from './ui.js';
 import { ITEMS } from './themes.js';
 import { isKid, isAdult } from './store.js';
+import { BEE } from './bee.js';
 
 const f1 = n => (Math.round(n * 10) / 10).toString();
 const shortName = s => { const t = String(s || '').replace(/（模擬）/g, ''); return t.length > 8 ? t.slice(0, 7) + '…' : t; };
@@ -63,7 +64,8 @@ function smooth(xy) {
 
 // ---------- 打卡標記：花＝大人、蜜蜂＝孩子、蜜蜂採花＝一起 ----------
 // 之後換風格：改這一段的圖形；顏色在 theme.css 的 --mk-* 變數
-export const BEE = `<g class="bee-g"><ellipse cx="-6" cy="-7" rx="7" ry="4.5" transform="rotate(-25 -6 -7)" class="bee-w"/><ellipse cx="6" cy="-7" rx="7" ry="4.5" transform="rotate(25 6 -7)" class="bee-w"/><ellipse cx="0" cy="0" rx="8" ry="9.5" class="bee-b"/><path d="M-7.5 -2h15M-7.5 3h15" class="bee-s"/><circle cx="0" cy="-10" r="4.5" class="bee-h"/></g>`;
+// 小蜜蜂放在 bee.js（換造型只要換 ./bee.svg）
+export { BEE };
 // 花的造型：flower 圓瓣花（預設）、sakura 櫻花瓣、clover 四葉草
 // 明信片換配色時會換造型；中心圓（mk-center）位置不變，號碼一樣放在中間
 let SHAPE = 'flower';
@@ -114,11 +116,82 @@ export function markerSVG(x, y, c, num, s = 1, cls = '', photo = null, numStyle 
     }
     return `<g class="mk ${cls}" style="transform-origin:${f1(x)}px ${f1(y)}px">${g}</g>`;
   }
+  // 日常的花：小一點、淡一點；同一個地方去越多次，花越大，20 次以上加一圈光
+  const daily = isDailyC(c);
+  if (daily) {
+    const n = c._n || 1;
+    s *= n >= 20 ? 1.05 : n >= 5 ? 0.85 : 0.7;
+    cls += ' mk-daily';
+    if (n >= 20) g += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(22 * s)}" class="mk-halo"/>`;
+  }
   if (adult) g += flowerShape(x, y, 12 * s);
   if (kid && !adult) g += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(14 * s)}" class="mk-kidbg"/><g transform="translate(${f1(x)} ${f1(y + 2 * s)}) scale(${f1(1.05 * s)})">${BEE}</g>`;
   if (kid && adult) g += `<g transform="translate(${f1(x + 3 * s)} ${f1(y - 6 * s)}) scale(${f1(.8 * s)})">${BEE}</g>`;
   if (num != null) g += `<circle cx="${f1(x + 11 * s)}" cy="${f1(y + 11 * s)}" r="${f1(6.8 * s)}" class="mk-badge"/><text x="${f1(x + 11 * s)}" y="${f1(y + 11 * s)}" dy=".36em" class="mk-num" style="font-size:${f1(8.4 * s)}px">${num}</text>`;
   return `<g class="mk ${cls}" style="transform-origin:${f1(x)}px ${f1(y)}px">${g}</g>`;
+}
+// 這筆打卡是不是日常（日常的旅行包 id 是 daily-年-月）
+export const isDailyC = c => typeof c.tripId === 'string' && c.tripId.startsWith('daily-');
+const placeKey = s => String(s || '').replace(/（模擬）/g, '').trim();
+// 同一個地方的日常打卡合併成一朵：100 公尺內、名字一樣；旅行的不合併
+export function mergeDaily(cs, meters = 100) {
+  const out = [], groups = [];
+  for (const c of cs) {
+    if (!isDailyC(c) || c.lat == null) { out.push(c); continue; }
+    const k = placeKey(c.placeName);
+    let g = groups.find(g => g.k === k && distM(g, c) <= meters);
+    if (!g) { g = { k, lat: c.lat, lng: c.lng, list: [] }; groups.push(g); }
+    g.list.push(c);
+  }
+  for (const g of groups) {
+    g.list.sort((a, b) => b.ts - a.ts);
+    const last = g.list[0];
+    out.push({ ...last, kid: g.list.some(isKid), adult: g.list.some(isAdult), _n: g.list.length, _visits: g.list });
+  }
+  return out.sort((a, b) => a.ts - b.ts);
+}
+// 地圖拉遠時，把靠得很近的點收成一格「蜂巢」：回傳 [{pts, x, y}]
+function clusterPx(pts, toPx, gap = 58) {
+  const cl = [];
+  pts.forEach(p => {
+    const q = toPx(p);
+    const c = cl.find(c => Math.hypot(c.x - q.x, c.y - q.y) < gap);
+    if (c) { c.pts.push(p); const n = c.pts.length; c.x += (q.x - c.x) / n; c.y += (q.y - c.y) / n; } else cl.push({ pts: [p], x: q.x, y: q.y });
+  });
+  return cl;
+}
+// 全部足跡的三種距離：很遠＝蜂蜜罐；中間＝日常光暈＋旅行大花；很近＝光暈中心多一個可以點的小點
+const FAR_Z = 12, NEAR_Z = 16;
+// 日常的蜂蜜光暈：去越多次，越大越亮
+function glowHTML(c) {
+  const n = c._n || 1, px = Math.round(Math.min(150, 54 + 18 * Math.sqrt(n)));
+  return { px, html: `<div class="glow" style="width:${px}px;height:${px}px;opacity:${(0.5 + 0.5 * Math.min(1, n / 20)).toFixed(2)}"></div>` };
+}
+// 很近時光暈中心的小點；孩子來過就多一隻小蜜蜂
+const dotHTML = c => `<div class="gdot">${(c._visits || [c]).some(isKid) ? `<svg viewBox="-16 -18 32 32" width="16" height="16" class="gdot-bee">${BEE}</svg>` : ''}</div>`;
+// 玻璃扣蓋罐：蜜的高度代表次數（100 次以上就滿），標籤寫城市／區和次數；有旅行就多一朵小黃花
+function jarHTML(group, label) {
+  const total = group.reduce((a, p) => a + (p._n || 1), 0);
+  const trip = group.some(p => !isDailyC(p));
+  const sz = total >= 50 ? 82 : total >= 10 ? 72 : 62;
+  const lvl = Math.min(1, Math.log(total + 1) / Math.log(101)), top = 113 - 43 * Math.max(0.12, lvl);
+  return { sz, total, html: `<div class="jarmk" style="width:${sz}px">
+    <svg viewBox="0 0 120 124" width="${sz}" height="${Math.round(sz * 124 / 120)}" aria-hidden="true">
+      <rect x="28" y="40" width="64" height="76" rx="16" class="jar-glass"/>
+      <path d="M31 ${top.toFixed(1)} H89 V100 Q89 113 76 113 H44 Q31 113 31 100Z" class="jar-honey"/>
+      <path d="M31 ${top.toFixed(1)} Q45 ${(top - 5).toFixed(1)} 60 ${top.toFixed(1)} T89 ${top.toFixed(1)}" class="jar-wave"/>
+      <rect x="32" y="26" width="56" height="16" rx="6" class="jar-lid"/>
+      <path d="M88 34 h6 v14 h-6" class="jar-clip"/>
+      <path d="M36 48 v14" class="jar-shine"/>
+      ${trip ? `<g transform="translate(96 42)">${[0, 72, 144, 216, 288].map(a => `<circle cx="${(7 * Math.cos((a - 90) * Math.PI / 180)).toFixed(1)}" cy="${(7 * Math.sin((a - 90) * Math.PI / 180)).toFixed(1)}" r="6" class="mk-petal"/>`).join('')}<circle r="4.5" class="mk-center"/></g>` : ''}
+    </svg><span class="jar-tag"><b>${esc(label)}</b><small>${total} 次</small></span></div>` };
+}
+// 一群點的中心和範圍
+function groupInfo(g) {
+  const lat = g.reduce((a, p) => a + p.lat, 0) / g.length, lng = g.reduce((a, p) => a + p.lng, 0) / g.length;
+  const span = Math.max(0, ...g.map(p => distM({ lat, lng }, p)));
+  const top = g.slice().sort((a, b) => (b._n || 1) - (a._n || 1))[0];
+  return { lat, lng, wide: span > 8000, fallback: shortName(top.placeName) };
 }
 export const whoText = c => (isKid(c) && isAdult(c) ? '一起' : isKid(c) ? '孩子' : '大人');
 // 舊介面：花園以外的地方曾用過，保留名稱
@@ -233,6 +306,11 @@ function svgAdultInner(pts, info, style, W, H, seed, view) {
   const sc = cute ? 1.2 : 1;
   const mk = i => {
     const c = pts[i], [x, y] = xy[i], faded = !on(i);
+    if (view.glowDaily && isDailyC(c)) {
+      const n = c._n || 1, rr = Math.min(70, 26 + 9 * Math.sqrt(n));
+      const kidMark = (c._visits || [c]).some(isKid) ? `<g transform="translate(${f1(x + 6)} ${f1(y - 7)}) scale(.38)">${BEE}</g>` : '';
+      return `<g class="pick" data-id="${c.id}"><circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(rr)}" fill="url(#${id}gl)" style="opacity:${(0.55 + 0.45 * Math.min(1, n / 20)).toFixed(2)}"/><circle cx="${f1(x)}" cy="${f1(y)}" r="4.2" class="gdot-svg"/>${kidMark}${labels[i]}</g>`;
+    }
     const glow = night && !faded ? `<circle cx="${f1(x)}" cy="${f1(y)}" r="${view.tags ? 24 : 20}" class="m-glow"/>` : '';
     if (view.tags) return `<g class="pick" data-id="${c.id}">${glow}${markerSVG(x, y, c, view.order ? view.order[c.id] : info.num(c), 1.15, '', null, 'center')}${labels[i]}</g>`;
     const n = view.video || (sel != null && !faded) ? info.num(c) : null;
@@ -253,7 +331,7 @@ function svgAdultInner(pts, info, style, W, H, seed, view) {
     pillBoxes.push([cx, cy]);
     return `<g class="daypill" data-day="${k}"><rect x="${f1(cx - 28)}" y="${f1(cy - 10)}" width="56" height="20" rx="10" class="m-daypill"/><text x="${f1(cx)}" y="${f1(cy)}" dy=".35em" text-anchor="middle" class="m-daytext">第 ${k + 1} 天</text></g>`;
   }).join('') : '';
-  return `<svg viewBox="0 0 ${W} ${H}" class="mapsvg ${cute ? 'cute' : night ? 'normal night' : 'normal'}${view.pal ? ' pal-' + view.pal : ''}" role="img" aria-label="採蜜地圖，共 ${pts.length} 個地點">
+  return `<svg viewBox="0 0 ${W} ${H}" class="mapsvg ${cute ? 'cute' : night ? 'normal night' : 'normal'}${view.pal ? ' pal-' + view.pal : ''}" role="img" aria-label="採蜜地圖，共 ${pts.length} 個地點"><defs><radialGradient id="${id}gl"><stop offset="0" class="gl-0"/><stop offset=".55" class="gl-1"/><stop offset="1" class="gl-2"/></radialGradient></defs>
     ${bg}<g class="rt">${routeSvg}</g>${faded}${pills}${active}<g class="bee" transform="translate(-50 -50)">${BEE}</g></svg>`;
 }
 
@@ -334,17 +412,44 @@ async function mountOSM(el, pts, info, opt) {
   await new Promise((res, rej) => { const tm = setTimeout(() => rej(new Error('timeout')), 12000); tiles.once('tileload', () => { clearTimeout(tm); res(); }); })
     .catch(e => { try { map.remove(); } catch (x) {} throw e; });
   const on = i => opt.day == null || info.dayOf(pts[i]) === opt.day;
+  const tiers = !!opt.cluster;
   const mkIcon = i => {
+    if (tiers && isDailyC(pts[i])) { const { px, html } = glowHTML(pts[i]); return L.divIcon({ html, className: 'leaf-mk', iconSize: [px, px], iconAnchor: [px / 2, px / 2] }); }
     const c = pts[i], sel = opt.day != null && on(i), sc = opt.style === 'cute' ? 1.3 : 1.1, sz = Math.round(44 * sc);
     return L.divIcon({ html: amapMarker(c, sel ? info.num(c) : null, !on(i), opt.style, sel && opt.style !== 'cute'), className: 'leaf-mk', iconSize: [sz, sz], iconAnchor: [sz / 2, sz / 2] });
   };
-  const markers = pts.map((c, i) => L.marker([c.lat, c.lng], { icon: mkIcon(i) }).on('click', () => opt.onPick && opt.onPick(c)).addTo(map));
-  const paint = () => markers.forEach((m, i) => { m.setIcon(mkIcon(i)); m.setZIndexOffset(on(i) ? 200 : 0); });
+  const markers = pts.map((c, i) => {
+    const glow = tiers && isDailyC(c);
+    const mk = L.marker([c.lat, c.lng], { icon: mkIcon(i), interactive: !glow, zIndexOffset: glow ? -500 : 0 });
+    if (!glow) mk.on('click', () => opt.onPick && opt.onPick(c));
+    return mk.addTo(map);
+  });
+  const dots = tiers ? pts.map(c => (isDailyC(c) ? L.marker([c.lat, c.lng], { icon: L.divIcon({ html: dotHTML(c), className: 'leaf-mk', iconSize: [22, 22], iconAnchor: [11, 11] }), zIndexOffset: 100 }).on('click', () => opt.onPick && opt.onPick(c)) : null)) : [];
+  const paint = () => markers.forEach((m, i) => { m.setIcon(mkIcon(i)); if (!(tiers && isDailyC(pts[i]))) m.setZIndexOffset(on(i) ? 200 : 0); });
   const fit = () => {
     const P = pts.filter((_, i) => on(i)).map(c => [c.lat, c.lng]);
     if (P.length === 1) map.setView(P[0], 16); else if (P.length) map.fitBounds(P, { padding: [60, 60], maxZoom: 16 });
   };
-  paint(); fit();
+  // 全部足跡：依遠近換畫法
+  let jars = [];
+  const recluster = () => {
+    if (!tiers) return;
+    jars.forEach(h => h.remove()); jars = [];
+    const z = map.getZoom(), far = z < FAR_Z, near = z >= NEAR_Z;
+    markers.forEach(mk => { if (far) mk.remove(); else if (!map.hasLayer(mk)) mk.addTo(map); });
+    dots.forEach(d => { if (!d) return; if (near && !far) { if (!map.hasLayer(d)) d.addTo(map); } else d.remove(); });
+    if (!far) return;
+    clusterPx(pts, p => map.latLngToContainerPoint([p.lat, p.lng]), 74).forEach(g => {
+      const gi = groupInfo(g.pts), { sz, html } = jarHTML(g.pts, gi.fallback);
+      const icon = h => L.divIcon({ html: h, className: 'leaf-mk', iconSize: [sz, sz + 24], iconAnchor: [sz / 2, sz / 2 + 12] });
+      const mk = L.marker(map.containerPointToLatLng([g.x, g.y]), { icon: icon(html), zIndexOffset: 300 })
+        .on('click', () => (g.pts.length > 1 ? map.fitBounds(g.pts.map(p => [p.lat, p.lng]), { padding: [60, 60], maxZoom: FAR_Z + 2 }) : map.setView([g.pts[0].lat, g.pts[0].lng], FAR_Z + 2))).addTo(map);
+      jars.push(mk);
+      regionName(gi.lat, gi.lng, gi.wide).then(nm => { if (nm && jars.includes(mk)) mk.setIcon(icon(jarHTML(g.pts, nm).html)); });
+    });
+  };
+  map.on('zoomend', recluster);
+  paint(); fit(); recluster();
   let meMk = null;
   const loc = locButton(el, () => { if (opt.me) map.setView([opt.me.lat, opt.me.lng], 16); });
   const setMe = me => {
@@ -411,18 +516,42 @@ async function mountAMap(el, pts, info, opt) {
     if (!pos.length) map.setZoomAndCenter(15, p);
   };
   const on = i => opt.day == null || info.dayOf(pts[i]) === opt.day;
+  const tiers = !!opt.cluster;
   const markers = pts.map((c, i) => {
-    const m = new AM.Marker({ position: pos[i], anchor: 'center', zIndex: 120 + i });
-    m.on('click', () => opt.onPick && opt.onPick(c));
+    const glow = tiers && isDailyC(c);
+    const m = new AM.Marker({ position: pos[i], anchor: 'center', zIndex: glow ? 10 : 120 + i, bubble: glow, clickable: !glow });
+    if (!glow) m.on('click', () => opt.onPick && opt.onPick(c));
     return m;
   });
+  const dots = tiers ? pts.map((c, i) => { if (!isDailyC(c)) return null; const d = new AM.Marker({ position: pos[i], anchor: 'center', zIndex: 150, content: dotHTML(c) }); d.on('click', () => opt.onPick && opt.onPick(c)); return d; }) : [];
   const paint = () => markers.forEach((m, i) => {
+    if (tiers && isDailyC(pts[i])) { m.setContent(glowHTML(pts[i]).html); return; }
     const sel = opt.day != null && on(i);
     m.setContent(amapMarker(pts[i], sel ? info.num(pts[i]) : null, !on(i), opt.style, sel && opt.style !== 'cute'));
     m.setzIndex(on(i) ? 200 + i : 100 + i);
   });
   const fit = () => { const ms = markers.filter((_, i) => on(i)); if (ms.length) map.setFitView(ms, false, [70, 60, 60, 60], 16); };
+  // 全部足跡：依遠近換畫法
+  let jars = [];
+  const recluster = () => {
+    if (!tiers) return;
+    if (jars.length) { map.remove(jars); jars = []; }
+    const z = map.getZoom(), far = z < FAR_Z, near = z >= NEAR_Z;
+    markers.forEach(mk => (far ? mk.hide() : mk.show()));
+    dots.forEach(d => { if (!d) return; if (near && !far) { if (!d.getMap()) map.add(d); d.show(); } else d.hide(); });
+    if (!far) return;
+    clusterPx(pts, p => map.lngLatToContainer(pos[pts.indexOf(p)]), 74).forEach(g => {
+      const gi = groupInfo(g.pts), { html } = jarHTML(g.pts, gi.fallback);
+      const h = new AM.Marker({ position: map.containerToLngLat(new AM.Pixel(g.x, g.y)), anchor: 'center', zIndex: 300, content: html });
+      h.on('click', () => (g.pts.length > 1 ? map.setFitView(g.pts.map(p => markers[pts.indexOf(p)]), false, [70, 60, 60, 60], FAR_Z + 2) : map.setZoomAndCenter(FAR_Z + 2, pos[pts.indexOf(g.pts[0])])));
+      jars.push(h);
+      regionName(gi.lat, gi.lng, gi.wide).then(nm => { if (nm && jars.includes(h)) h.setContent(jarHTML(g.pts, nm).html); });
+    });
+    if (jars.length) map.add(jars);
+  };
   if (markers.length) { map.add(markers); paint(); fit(); }
+  map.on('zoomend', recluster);
+  setTimeout(recluster, 300);
   let line = null, bee = null, raf = 0;
   const clearRoute = () => { cancelAnimationFrame(raf); if (line) map.remove(line); if (bee) map.remove(bee); line = bee = null; };
   const routeColor = () => (opt.style === 'cute' ? '#FF6F91' : opt.style === 'night' ? '#E8B84A' : '#D98A00');
@@ -464,6 +593,8 @@ async function mountAMap(el, pts, info, opt) {
 // ---------- 對外：放一張地圖 ----------
 // opt: { style:'normal'|'cute', day: 天的索引或 null（全部）, onPick(c), height, seed }
 export async function mountMap(el, checkins, opt = {}) {
+  // opt.merge：日常同一個地方合併成一朵（全部足跡用）；opt.cluster：拉遠時收成蜂巢格
+  if (opt.merge) checkins = mergeDaily(checkins);
   const pts = checkins.filter(c => c.lat != null);
   const info = dayInfo(checkins);
   opt.style = opt.style || 'normal';
@@ -491,7 +622,7 @@ export async function mountMap(el, checkins, opt = {}) {
   const W = 360, H = opt.height ? Math.round(360 * opt.height / Math.max(300, el.clientWidth || 360)) : 280;
   const draw = () => {
     if (stop) stop();
-    el.innerHTML = svgAdult(pts, info, opt.style, W, Math.max(240, Math.min(H, 520)), opt.seed || 'fengcai', { day: opt.day, noPills: opt.noPills });
+    el.innerHTML = svgAdult(pts, info, opt.style, W, Math.max(240, Math.min(H, 520)), opt.seed || 'fengcai', { day: opt.day, noPills: opt.noPills, glowDaily: !!opt.cluster });
     const svg = el.querySelector('svg');
     if (connected) showRouteDone(svg); else hideRoute(svg);
     svg.querySelectorAll('.pick').forEach(g => g.addEventListener('click', () => { const c = pts.find(p => p.id === g.dataset.id); if (c && opt.onPick) opt.onPick(c); }));

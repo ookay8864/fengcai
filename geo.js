@@ -229,6 +229,22 @@ async function osmNearbyOverpass(lat, lng) {
   } catch (e) { return []; } finally { clearTimeout(tm); }
 }
 
+// ---------- 這個位置在哪個城市／區（地圖拉遠時，蜂蜜罐上的名字） ----------
+// wide＝範圍很大時用城市，否則用區；結果存在手機裡，同一帶不用再查
+const trimRegion = s => String(s || '').replace(/(特別行政區|特别行政区|自治州|地區|地区|市|區|区|縣|县)$/, '');
+export async function regionName(lat, lng, wide = false) {
+  const key = `fc-rg-${wide ? 'c' : 'd'}-${lat.toFixed(2)},${lng.toFixed(2)}`;
+  try { const hit = localStorage.getItem(key); if (hit) return hit; } catch (e) {}
+  const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 7000);
+  try {
+    const j = await (await fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}&limit=1`, { signal: ctl.signal })).json();
+    const p = (j.features && j.features[0] && j.features[0].properties) || {};
+    const name = trimRegion(wide ? p.city || p.county || p.state || p.district : p.district || p.city || p.county || p.state);
+    if (name) { try { localStorage.setItem(key, name); } catch (e) {} }
+    return name || '';
+  } catch (e) { return ''; } finally { clearTimeout(tm); }
+}
+
 // ---------- 用名字找地點（打卡時輸入兩個字以上） ----------
 // 先找附近 50 公里內，找不到再全國找；回傳的 lat/lng 是 GPS 座標
 export async function searchPlaces(kw, near) {

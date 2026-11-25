@@ -637,9 +637,6 @@ body.kid{background:var(--kid-bg) var(--pattern);color:var(--kid-ink)}
 .cap-anim.melt .ca-bee{animation:capbeego 1.2s ease-in forwards}
 @keyframes capmelt{to{fill:var(--cap-honey-hi);opacity:.4}}
 @keyframes capbeego{to{transform:translate(-90px,60px) scale(.8)}}
-.ca-drip{position:absolute;left:50%;bottom:6%;width:14px;height:0;margin-left:-7px;border-radius:0 0 7px 7px;background:var(--cap-honey-hi)}
-.cap-anim.melt .ca-drip{animation:capdrip 1.4s ease-in forwards}
-@keyframes capdrip{to{height:70px}}
 .cap-anim .btn{min-width:180px}
 /* 膠囊內容 */
 .cap-open .cap-hd{margin:0;font:800 20px var(--font);color:var(--honey-deep)}
@@ -676,3 +673,45 @@ body.kid{background:var(--kid-bg) var(--pattern);color:var(--kid-ink)}
 .ann-t .cd-cap{background:var(--cap-rim)}
 .ann-s{margin:4px 0 10px;font-size:14.5px}
 .ann-x{position:absolute;top:6px;right:8px;border:0;background:none;font-size:22px;line-height:1;color:var(--hive);opacity:.6;cursor:pointer;padding:6px}
+
+/* ---------- v0.12 日常小淡花、常去的地方、蜂巢格 ---------- */
+.mk-daily .mk-petal{fill:var(--mk-daily-petal)}
+.mk-daily .mk-center{fill:var(--mk-daily-center);stroke:var(--mk-daily-edge);stroke-width:1}
+.mk-daily .mk-hi{fill:#fff;opacity:.7}
+.mk-halo{fill:var(--mk-daily-halo)}
+.hexmk{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#5A3A00;text-align:center;line-height:1.15;filter:drop-shadow(0 2px 3px rgba(0,0,0,.18))}
+.hexmk svg{position:absolute;inset:0}
+.hexmk b,.hexmk span{position:relative;max-width:80%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hexmk b{font:800 12px var(--font)}
+.hexmk span{font:700 11px var(--font-num)}
+.visits{display:grid;gap:6px;max-height:55vh;overflow:auto}
+.visit{display:flex;align-items:center;gap:10px;padding:6px;border-radius:12px;background:var(--bg);color:var(--ink);text-decoration:none}
+.vth{width:44px;height:44px;border-radius:10px;overflow:hidden;display:grid;place-items:center;background:var(--honey-soft);flex-shrink:0}
+.vth img{width:100%;height:100%;object-fit:cover}.vth .ic{width:20px;height:20px;color:var(--honey-deep)}
+.visit b{display:block;font-size:15px}.visit small{font-size:12.5px;color:var(--ink-soft)}
+
+/* ---------- v0.13 全部足跡：蜂蜜光暈、可點的小點、玻璃罐 ---------- */
+.glow{border-radius:50%;background:radial-gradient(circle,var(--glow-0) 0%,var(--glow-1) 45%,transparent 72%);pointer-events:none}
+.gl-0{stop-color:var(--glow-0)}.gl-1{stop-color:var(--glow-1)}.gl-2{stop-color:var(--glow-1);stop-opacity:0}
+.gdot{position:relative;width:14px;height:14px;margin:4px;border-radius:50%;background:#fff;border:3px solid var(--jar-rim);box-shadow:0 1px 3px rgba(0,0,0,.25);cursor:pointer}
+.gdot-bee{position:absolute;right:-12px;top:-12px}
+.gdot-svg{fill:#fff;stroke:var(--jar-rim);stroke-width:2.2}
+.jarmk{display:flex;flex-direction:column;align-items:center;cursor:pointer;filter:drop-shadow(0 2px 3px rgba(0,0,0,.18))}
+.jarmk svg{display:block}
+.jar-glass{fill:var(--jar-glass);stroke:var(--jar-rim);stroke-width:4}
+.jar-honey{fill:var(--jar-honey)}
+.jar-wave{fill:none;stroke:var(--jar-honey-hi);stroke-width:4}
+.jar-lid{fill:var(--jar-lid);stroke:var(--jar-rim);stroke-width:3.5}
+.jar-clip{fill:none;stroke:#8A8A8A;stroke-width:3.5;stroke-linejoin:round}
+.jar-shine{stroke:#fff;stroke-width:5;stroke-linecap:round;opacity:.9}
+.jar-tag{margin-top:-6px;padding:3px 9px;border-radius:999px;background:#fff;border:2px solid var(--jar-rim);display:flex;gap:5px;align-items:baseline;white-space:nowrap}
+.jar-tag b{font:800 12.5px var(--font);color:#5A3A00}
+.jar-tag small{font:700 11px var(--font-num);color:#8A5A00}
+/* 地圖上方：全部／大人／孩子 */
+.mapbar .whoseg{margin-left:auto}
+
+/* 膠囊打開：封蠟在格子裡融化，蜂蜜在格子裡慢慢升滿（不會流出來） */
+.cap-anim.open .hx-fill,.cap-anim.open .hx-wave{transition:transform 1.3s ease-in-out}
+.cap-anim.melt .hx-fill,.cap-anim.melt .hx-wave{transform:translateY(-72px)}
+.mapbar{flex-wrap:nowrap;gap:8px}
+.mapbar .seg button{padding:7px 10px;font-size:13.5px}

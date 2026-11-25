@@ -131,7 +131,7 @@ export async function createView(mode = 'new') {
       <p class="cap-when" id="cwhentxt"></p>
     </section>
     ${kid ? '' : `<section class="cap-sec"><h2 class="h2">給誰</h2>
-      <div class="chips" id="cto">${Object.entries(TO).map(([k, n]) => `<button data-to="${k}" class="${k === 'self' ? 'on' : ''}">${n}</button>`).join('')}</div>
+      <div class="chips" id="cto">${Object.entries(TO).filter(([k]) => k !== 'kid' || getSetting('kidMode') !== 'off').map(([k, n]) => `<button data-to="${k}" class="${k === 'self' ? 'on' : ''}">${n}</button>`).join('')}</div>
       <div id="cfriend" hidden>
         <label class="lbl" for="cfname">朋友的名字</label><input id="cfname" class="inp" maxlength="20" placeholder="例如：小美">
         <p class="note">封好之後，會把膠囊存成一個檔案，用微信、LINE 或 AirDrop 傳給朋友。朋友在他的蜂采按「收到的膠囊」，膠囊就會出現在他的蜂巢裡，時間到才打得開。</p>
@@ -290,7 +290,7 @@ function unseal(c) {
   return new Promise(res => {
     const ov = document.createElement('div');
     ov.className = 'cap-anim open';
-    ov.innerHTML = `<div class="ca-hex">${hexCell('sealed', 1)}<div class="ca-bee"><svg viewBox="-16 -18 32 32" width="64" height="64">${BEE}</svg></div><div class="ca-drip"></div></div>
+    ov.innerHTML = `<div class="ca-hex">${hexCell('sealed', 0.3)}<div class="ca-bee"><svg viewBox="-16 -18 32 32" width="64" height="64">${BEE}</svg></div></div>
       <p>${c.received && c.from ? `${esc(c.from)} 送你的` : '一顆'}時光膠囊<br>可以打開了</p>
       <button class="btn main big" id="caopen">${icon('flower')}打開</button>`;
     document.body.appendChild(ov);

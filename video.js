@@ -11,6 +11,7 @@ import { renderPostcard, dateRange, statsLine, palette, rr, wrap, FONT } from '.
 import { renderMusic } from './music.js';
 import { fmtDate, dayKey } from './ui.js';
 import { blobDims } from './media.js';
+import { customBeeImage } from './bee.js';
 
 const V = CONFIG.video;
 const CW = V.width, CH = V.height, MW = 360, MH = Math.round(360 * CH / CW), K = CW / MW;
@@ -68,6 +69,8 @@ function along(pts, t) {
 
 // ---------- 小元件 ----------
 function drawBee(ctx, x, y, s, t, P, flip = 1) {
+  const img = customBeeImage();
+  if (img) { ctx.save(); ctx.translate(x, y + Math.sin(t * 10) * .8 * s); ctx.scale(flip, 1); ctx.drawImage(img, -16 * s, -18 * s, 32 * s, 32 * s); ctx.restore(); return; }
   ctx.save(); ctx.translate(x, y); ctx.scale(s * flip, s);
   const f = 0.55 + 0.45 * Math.abs(Math.sin(t * 28));
   ctx.lineWidth = 1.2; ctx.strokeStyle = P.ink; ctx.fillStyle = 'rgba(255,255,255,.93)';
