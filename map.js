@@ -391,9 +391,12 @@ let leafP = null;
 function loadLeaflet() {
   if (window.L && window.L.map) return Promise.resolve(window.L);
   if (!leafP) leafP = new Promise((res, rej) => {
-    const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = CONFIG.osm.css; document.head.appendChild(css);
+    // 樣式表也要載好，地圖才量得到正確的大小
+    const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = CONFIG.osm.css;
+    const cssDone = new Promise(ok => { css.onload = ok; css.onerror = ok; setTimeout(ok, 5000); });
+    document.head.appendChild(css);
     const s = document.createElement('script'); s.src = CONFIG.osm.js;
-    s.onload = () => (window.L ? res(window.L) : rej(new Error('leaflet')));
+    s.onload = () => (window.L ? cssDone.then(() => res(window.L)) : rej(new Error('leaflet')));
     s.onerror = () => { leafP = null; rej(new Error('開放地圖載入失敗')); };
     document.head.appendChild(s);
   });
@@ -405,6 +408,7 @@ async function mountOSM(el, pts, info, opt) {
   const box = el.firstChild;
   const start = pts[0] || opt.me || { lat: 25.034, lng: 121.5645 };
   const map = L.map(box, { zoomControl: false, attributionControl: true }).setView([start.lat, start.lng], 15);
+  map.invalidateSize();
   const tileUrl = s => CONFIG.osm.tiles[s] || CONFIG.osm.tiles.normal;
   const tiles = L.tileLayer(tileUrl(opt.style), { maxZoom: 19, attribution: CONFIG.osm.attribution }).addTo(map);
   const tint = s => { el.classList.remove('osm-normal', 'osm-cute', 'osm-night'); el.classList.add('osm-' + s); };
@@ -439,7 +443,7 @@ async function mountOSM(el, pts, info, opt) {
     markers.forEach(mk => { if (far) mk.remove(); else if (!map.hasLayer(mk)) mk.addTo(map); });
     dots.forEach(d => { if (!d) return; if (near && !far) { if (!map.hasLayer(d)) d.addTo(map); } else d.remove(); });
     if (!far) return;
-    clusterPx(pts, p => map.latLngToContainerPoint([p.lat, p.lng]), 74).forEach(g => {
+    clusterPx(pts, p => map.latLngToContainerPoint([p.lat, p.lng]), 96).forEach(g => {
       const gi = groupInfo(g.pts), { sz, html } = jarHTML(g.pts, gi.fallback);
       const icon = h => L.divIcon({ html: h, className: 'leaf-mk', iconSize: [sz, sz + 24], iconAnchor: [sz / 2, sz / 2 + 12] });
       const mk = L.marker(map.containerPointToLatLng([g.x, g.y]), { icon: icon(html), zIndexOffset: 300 })
@@ -465,7 +469,7 @@ async function mountOSM(el, pts, info, opt) {
   const clearRoute = () => { cancelAnimationFrame(raf); if (line) line.remove(); if (bee) bee.remove(); line = bee = null; };
   const routeColor = () => (opt.style === 'cute' ? '#FF6F91' : opt.style === 'night' ? '#E8B84A' : '#D98A00');
   return {
-    kind: 'osm',
+    kind: 'osm', _map: map,
     connect() {
       clearRoute();
       const P = pts.filter((_, i) => on(i)).map(c => [c.lat, c.lng]);
@@ -540,7 +544,7 @@ async function mountAMap(el, pts, info, opt) {
     markers.forEach(mk => (far ? mk.hide() : mk.show()));
     dots.forEach(d => { if (!d) return; if (near && !far) { if (!d.getMap()) map.add(d); d.show(); } else d.hide(); });
     if (!far) return;
-    clusterPx(pts, p => map.lngLatToContainer(pos[pts.indexOf(p)]), 74).forEach(g => {
+    clusterPx(pts, p => map.lngLatToContainer(pos[pts.indexOf(p)]), 96).forEach(g => {
       const gi = groupInfo(g.pts), { html } = jarHTML(g.pts, gi.fallback);
       const h = new AM.Marker({ position: map.containerToLngLat(new AM.Pixel(g.x, g.y)), anchor: 'center', zIndex: 300, content: html });
       h.on('click', () => (g.pts.length > 1 ? map.setFitView(g.pts.map(p => markers[pts.indexOf(p)]), false, [70, 60, 60, 60], FAR_Z + 2) : map.setZoomAndCenter(FAR_Z + 2, pos[pts.indexOf(g.pts[0])])));

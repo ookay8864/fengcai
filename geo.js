@@ -128,7 +128,7 @@ export function loadAMap() {
     amapP = new Promise((res, rej) => {
       if (sec) window._AMapSecurityConfig = { securityJsCode: sec };
       const s = document.createElement('script');
-      s.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(key)}&plugin=AMap.PlaceSearch`;
+      s.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(key)}&plugin=AMap.PlaceSearch,AMap.Geocoder`;
       s.onload = () => (window.AMap ? res(window.AMap) : rej(new Error('高德地圖載入失敗')));
       s.onerror = () => { amapP = null; rej(new Error('高德地圖載入失敗')); };
       document.head.appendChild(s);
@@ -235,11 +235,26 @@ const trimRegion = s => String(s || '').replace(/(特別行政區|特别行政�
 export async function regionName(lat, lng, wide = false) {
   const key = `fc-rg-${wide ? 'c' : 'd'}-${lat.toFixed(2)},${lng.toFixed(2)}`;
   try { const hit = localStorage.getItem(key); if (hit) return hit; } catch (e) {}
+  // 中國大陸有高德金鑰：用高德查「區」（例如寶安區）
+  if (inMainland(lat, lng) && getSetting('amapKey')) {
+    try {
+      const AM = await loadAMap();
+      if (AM && AM.Geocoder) {
+        const [gl, ga] = wgs2gcj(lng, lat);
+        const ac = await new Promise(res => { const t = setTimeout(() => res(null), 6000); new AM.Geocoder().getAddress([gl, ga], (st, r) => { clearTimeout(t); res(st === 'complete' ? r.regeocode.addressComponent : null); }); });
+        const city = Array.isArray(ac?.city) ? '' : ac?.city;
+        const nm = trimRegion(wide ? city || ac?.province : ac?.district || city || ac?.province);
+        if (nm) { try { localStorage.setItem(key, nm); } catch (e) {} return nm; }
+      }
+    } catch (e) {}
+  }
   const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 7000);
   try {
     const j = await (await fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}&limit=1`, { signal: ctl.signal })).json();
     const p = (j.features && j.features[0] && j.features[0].properties) || {};
-    const name = trimRegion(wide ? p.city || p.county || p.state || p.district : p.district || p.city || p.county || p.state);
+    // 開放地圖的 district 在大陸常是「街道」：只有真正的「區」才用，不然用城市
+    const dist = /[區区]$/.test(p.district || '') ? p.district : '';
+    const name = trimRegion(wide ? p.city || p.county || p.state : dist || p.city || p.county || p.state);
     if (name) { try { localStorage.setItem(key, name); } catch (e) {} }
     return name || '';
   } catch (e) { return ''; } finally { clearTimeout(tm); }
