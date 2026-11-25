@@ -172,8 +172,7 @@ const dotHTML = c => `<div class="gdot">${(c._visits || [c]).some(isKid) ? `<svg
 // 玻璃扣蓋罐：蜜的高度代表次數（100 次以上就滿），標籤寫城市／區和次數；有旅行就多一朵小黃花
 function jarHTML(group, label) {
   const total = group.reduce((a, p) => a + (p._n || 1), 0);
-  const trip = group.some(p => !isDailyC(p));
-  const sz = total >= 50 ? 82 : total >= 10 ? 72 : 62;
+    const sz = total >= 50 ? 82 : total >= 10 ? 72 : 62;
   const lvl = Math.min(1, Math.log(total + 1) / Math.log(101)), top = 113 - 43 * Math.max(0.12, lvl);
   return { sz, total, html: `<div class="jarmk" style="width:${sz}px">
     <svg viewBox="0 0 120 124" width="${sz}" height="${Math.round(sz * 124 / 120)}" aria-hidden="true">
@@ -183,8 +182,19 @@ function jarHTML(group, label) {
       <rect x="32" y="26" width="56" height="16" rx="6" class="jar-lid"/>
       <path d="M88 34 h6 v14 h-6" class="jar-clip"/>
       <path d="M36 48 v14" class="jar-shine"/>
-      ${trip ? `<g transform="translate(96 42)">${[0, 72, 144, 216, 288].map(a => `<circle cx="${(7 * Math.cos((a - 90) * Math.PI / 180)).toFixed(1)}" cy="${(7 * Math.sin((a - 90) * Math.PI / 180)).toFixed(1)}" r="6" class="mk-petal"/>`).join('')}<circle r="4.5" class="mk-center"/></g>` : ''}
     </svg><span class="jar-tag"><b>${esc(label)}</b><small>${total} 次</small></span></div>` };
+}
+// 拉遠時，一趟旅行只收成一朵大花，掛上旅行名牌；點了就只看那一趟
+function tripGroups(pts) {
+  const m = new Map();
+  pts.forEach(p => { if (isDailyC(p)) return; if (!m.has(p.tripId)) m.set(p.tripId, []); m.get(p.tripId).push(p); });
+  return [...m].map(([id, g]) => ({ id, pts: g, lat: g.reduce((a, p) => a + p.lat, 0) / g.length, lng: g.reduce((a, p) => a + p.lng, 0) / g.length }));
+}
+function tripBadgeHTML(id, g, trips) {
+  const t = (trips && trips[id]) || {}, days = new Set(g.map(p => dayKey(p.ts))).size;
+  const name = t.name || '一趟旅行', kid = g.some(isKid);
+  const petals = [0, 72, 144, 216, 288].map(a => `<circle cx="${(11 * Math.cos((a - 90) * Math.PI / 180)).toFixed(1)}" cy="${(11 * Math.sin((a - 90) * Math.PI / 180)).toFixed(1)}" r="9.5" class="mk-petal mk-edge"/>`).join('');
+  return `<div class="tripmk"><svg viewBox="-24 -24 48 48" width="54" height="54" aria-hidden="true">${petals}<circle r="7.5" class="mk-center"/>${kid ? `<g transform="translate(12 -14) scale(.45)">${BEE}</g>` : ''}</svg><span class="trip-tag"><b>${esc(name.length > 10 ? name.slice(0, 9) + '…' : name)}</b><small>${days} 天 · ${g.length} 站</small></span></div>`;
 }
 // 一群點的中心和範圍
 function groupInfo(g) {
@@ -443,7 +453,12 @@ async function mountOSM(el, pts, info, opt) {
     markers.forEach(mk => { if (far) mk.remove(); else if (!map.hasLayer(mk)) mk.addTo(map); });
     dots.forEach(d => { if (!d) return; if (near && !far) { if (!map.hasLayer(d)) d.addTo(map); } else d.remove(); });
     if (!far) return;
-    clusterPx(pts, p => map.latLngToContainerPoint([p.lat, p.lng]), 96).forEach(g => {
+    tripGroups(pts).forEach(tg => {
+      const mk = L.marker([tg.lat, tg.lng], { icon: L.divIcon({ html: tripBadgeHTML(tg.id, tg.pts, opt.trips), className: 'leaf-mk', iconSize: [54, 54], iconAnchor: [27, 27] }), zIndexOffset: 400 })
+        .on('click', () => (opt.onTrip ? opt.onTrip(tg.id) : map.fitBounds(tg.pts.map(p => [p.lat, p.lng]), { padding: [60, 60], maxZoom: 15 }))).addTo(map);
+      jars.push(mk);
+    });
+    clusterPx(pts.filter(isDailyC), p => map.latLngToContainerPoint([p.lat, p.lng]), 96).forEach(g => {
       const gi = groupInfo(g.pts), { sz, html } = jarHTML(g.pts, gi.fallback);
       const icon = h => L.divIcon({ html: h, className: 'leaf-mk', iconSize: [sz, sz + 24], iconAnchor: [sz / 2, sz / 2 + 12] });
       const mk = L.marker(map.containerPointToLatLng([g.x, g.y]), { icon: icon(html), zIndexOffset: 300 })
@@ -544,7 +559,12 @@ async function mountAMap(el, pts, info, opt) {
     markers.forEach(mk => (far ? mk.hide() : mk.show()));
     dots.forEach(d => { if (!d) return; if (near && !far) { if (!d.getMap()) map.add(d); d.show(); } else d.hide(); });
     if (!far) return;
-    clusterPx(pts, p => map.lngLatToContainer(pos[pts.indexOf(p)]), 96).forEach(g => {
+    tripGroups(pts).forEach(tg => {
+      const c = wgs2gcj(tg.lng, tg.lat), h = new AM.Marker({ position: c, anchor: 'center', zIndex: 400, content: tripBadgeHTML(tg.id, tg.pts, opt.trips) });
+      h.on('click', () => (opt.onTrip ? opt.onTrip(tg.id) : map.setFitView(tg.pts.map(p => markers[pts.indexOf(p)]), false, [70, 60, 60, 60], 15)));
+      jars.push(h);
+    });
+    clusterPx(pts.filter(isDailyC), p => map.lngLatToContainer(pos[pts.indexOf(p)]), 96).forEach(g => {
       const gi = groupInfo(g.pts), { html } = jarHTML(g.pts, gi.fallback);
       const h = new AM.Marker({ position: map.containerToLngLat(new AM.Pixel(g.x, g.y)), anchor: 'center', zIndex: 300, content: html });
       h.on('click', () => (g.pts.length > 1 ? map.setFitView(g.pts.map(p => markers[pts.indexOf(p)]), false, [70, 60, 60, 60], FAR_Z + 2) : map.setZoomAndCenter(FAR_Z + 2, pos[pts.indexOf(g.pts[0])])));

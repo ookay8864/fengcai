@@ -3,7 +3,7 @@ import { CONFIG, getSetting, setSetting } from './config.js';
 import { store, ensureActiveTrip, getActiveId, setActiveId, askPersist, isKid, isAdult, findMergeTarget, getMode, startTrip, resumeTrip, endTrip, isDaily, moveDaysToTrip } from './store.js';
 import { getPosition, peekPosition, nearby, searchPlaces, inMainland, badgeOf, BADGES, shortType, isDemo, demoOff, amapLink, testAMap } from './geo.js';
 import { compressImage, videoThumb, startRecorder, blobDims } from './media.js';
-import { mountMap, gardenSVG, dayInfo, defaultDay, markerSVG, markerNumSVG, whoText } from './map.js';
+import { mountMap, gardenSVG, dayInfo, defaultDay, markerSVG, markerNumSVG, whoText, isDailyC } from './map.js';
 import { allThemes, getTheme, themeIcon, itemIcon, ITEMS, GROUNDS, listCustom, saveCustom, deleteCustom } from './themes.js';
 import { collect, renderPostcard, DEFAULT_PC, PALETTES, TEMPLATES, SIZES } from './postcard.js';
 import { makeVideo, estimate, canMakeVideo, selectVisuals, layoutItems, stopDuration, voiceLen, isLand, PER_STOP } from './video.js';
@@ -686,20 +686,9 @@ function visitsSheet(c) {
 }
 
 async function mapView(id) {
-  const scope = !id && getSetting('mapScope') === 'all' ? 'all' : 'pack';
-  const h = Math.max(320, Math.min(560, window.innerHeight - 330));
-  const scopeSeg = `<div class="seg scopeseg" role="group" aria-label="地圖範圍"><button data-sc="pack" class="${scope === 'pack' ? 'on' : ''}">這一包</button><button data-sc="all" class="${scope === 'all' ? 'on' : ''}">全部足跡</button></div>`;
+  // 地圖頁只有「全部足跡」；#map/<旅行包> 是「只看這一趟」
+  const fitH = extra => Math.max(300, Math.min(600, window.innerHeight - extra));
   const keyNote = '<div id="mapnote"></div>';
-  // 全部／大人／孩子（孩子功能關掉時不顯示）
-  const who = kidOn() ? getSetting('mapWho', 'all') : 'all';
-  const whoSeg = kidOn() ? `<div class="seg whoseg" role="group" aria-label="看誰的足跡">${[['all', '全部'], ['adult', '大人'], ['kid', '孩子']].map(([k, n]) => `<button data-who="${k}" class="${who === k ? 'on' : ''}">${n}</button>`).join('')}</div>` : '';
-  const byWho = cs => (who === 'adult' ? cs.filter(isAdult) : who === 'kid' ? cs.filter(isKid) : cs);
-  const bindWho = () => view.querySelectorAll('[data-who]').forEach(b => b.onclick = () => { setSetting('mapWho', b.dataset.who); rerender(); });
-  const bindScope = () => view.querySelectorAll('[data-sc]').forEach(b => b.onclick = () => {
-    if (b.dataset.sc === scope && !id) return;
-    setSetting('mapScope', b.dataset.sc);
-    if (location.hash === '#map') rerender(); else location.hash = 'map';
-  });
   // 地圖畫好之後，再放上「我在這裡」
   const showMe = () => {
     const ctl = curMap, note = $('#mapnote');
@@ -710,42 +699,49 @@ async function mapView(id) {
     peekPosition().then(p => { if (curMap === ctl) ctl.setMe(p); }).catch(() => { if (note && curMap === ctl) { note.className = 'mapnote'; note.innerHTML = `${icon('map')}<div><b>沒有拿到你的位置</b><p>請到 iPhone「設定 → 隱私權與安全性 → 定位服務 → Safari 網站」選「使用 App 期間」，再重新打開蜂采。</p></div>`; } });
   };
 
-  if (scope === 'all') {
-    const ts = await store.listTrips();
-    let all = [];
-    for (const t of ts) all = all.concat(await store.listCheckins(t.id));
-    all = byWho(all);
-    all.sort((p, q) => p.ts - q.ts);
-    const packs = ts.filter(t => !isDaily(t)).length, months = ts.filter(t => isDaily(t)).length;
-    view.innerHTML = `<div class="row between"><h1 class="h1">採蜜地圖</h1><span class="muted sm">${all.length} 個地點</span></div>
-      ${demoBar()}${scopeSeg}
-      <div class="mapbar">${styleSeg()}${whoSeg}</div>
+  // ---- 只看這一趟 ----
+  if (id) {
+    const t = await store.getTrip(id);
+    if (!t) { location.hash = 'map'; return; }
+    const cs = await store.listCheckins(t.id);
+    const days = new Set(cs.map(c => dayKey(c.ts))).size;
+    view.innerHTML = `<div class="row between"><h1 class="h1">採蜜地圖</h1><span class="muted sm">${cs.length} 個地點</span></div>
+      <div class="focuscard"><a class="btn sm" href="#map" id="backall" aria-label="回全部足跡">${icon('back')}全部</a><div><b>${esc(t.name)}</b><small>${isDaily(t) ? '日常' : `${days} 天 · ${cs.length} 站`}</small></div><button class="btn main sm" id="conn">${icon('flower')}連起來</button></div>
+      <div class="dayseg" id="daytabs"></div>
       <div id="mapbox"></div>
-      <p class="muted sm" style="margin:10px 2px 0">大黃花是旅行；日常是蜂蜜光暈，越常去越亮。拉遠時收成蜂蜜罐，放大到街道時，點光暈中間的小點可以看去過幾次。</p>
+      <div class="daylist" id="daylist"></div>
       ${mapLegend()}${keyNote}`;
-    bindScope(); bindDemoBar(); bindWho();
-    curMap = await mountMap($('#mapbox'), all, { style: mapStyle(), height: h, seed: 'all-footprints', day: null, noPills: true, wantMe: true, merge: true, cluster: true,
-      onPick: c => { if (c._n > 1) visitsSheet(c); else location.hash = `c/${c.id}`; } });
-    const ctl = curMap;
-    view.querySelectorAll('[data-style]').forEach(b => b.onclick = () => { setSetting('mapStyle', b.dataset.style); view.querySelectorAll('[data-style]').forEach(x => x.classList.toggle('on', x === b)); ctl.setStyle(b.dataset.style); });
+    await attachMap($('#mapbox'), cs, fitH(290), t.id, isDaily(t), { wantMe: true });
+    // 旅行一打開就沿著順序串起來
+    const conn = $('#conn');
+    if (!isDaily(t) && conn && !conn.disabled) setTimeout(() => { if ($('#conn') === conn) conn.click(); }, 500);
     showMe();
     return;
   }
 
-  const t = id ? await store.getTrip(id) : await ensureActiveTrip();
-  if (!t) { location.hash = 'map'; return; }
-  const cs = await store.listCheckins(t.id);
-  view.innerHTML = `<div class="row between"><h1 class="h1">採蜜地圖</h1><span class="muted sm">${cs.length} 個地點</span></div>
-    ${demoBar()}${scopeSeg}
-    <button class="chip" id="tripchip" style="margin-top:8px">${icon(isDaily(t) ? 'flower' : 'trip')}<span><b>${esc(t.name)}</b></span><em>換旅程</em></button>
-    <div class="mapbar">${styleSeg()}<button class="btn main sm" id="conn">${icon('flower')}連起來</button></div>
-    <div class="dayseg" id="daytabs"></div>
+  // ---- 全部足跡 ----
+  const who = kidOn() ? getSetting('mapWho', 'all') : 'all';
+  const whoSeg = kidOn() ? `<div class="seg whoseg" role="group" aria-label="看誰的足跡">${[['all', '全部'], ['adult', '大人'], ['kid', '孩子']].map(([k, n]) => `<button data-who="${k}" class="${who === k ? 'on' : ''}">${n}</button>`).join('')}</div>` : '';
+  const byWho = cs => (who === 'adult' ? cs.filter(isAdult) : who === 'kid' ? cs.filter(isKid) : cs);
+  const ts = await store.listTrips();
+  let all = [];
+  for (const t of ts) all = all.concat(await store.listCheckins(t.id));
+  all = byWho(all);
+  all.sort((p, q) => p.ts - q.ts);
+  const trips = {};
+  ts.forEach(t => { trips[t.id] = { name: t.name }; });
+  view.innerHTML = `<div class="row between"><h1 class="h1">採蜜地圖</h1><span class="muted sm">${all.length} 個地點</span></div>
+    ${demoBar()}
+    ${whoSeg ? `<div class="mapbar">${whoSeg}</div>` : ''}
     <div id="mapbox"></div>
-    <div class="daylist" id="daylist"></div>
+    <p class="muted sm" style="margin:10px 2px 0">大黃花是一趟旅行，點它就只看那一趟。日常是蜂蜜光暈，越常去越亮；拉遠時收成蜂蜜罐，放大到街道時，點中間的小點可以看去過幾次。</p>
     ${mapLegend()}${keyNote}`;
-  $('#tripchip').onclick = () => { location.hash = 'trips'; };
-  bindScope(); bindDemoBar();
-  await attachMap($('#mapbox'), cs, h, t.id, isDaily(t), { wantMe: true });
+  bindDemoBar();
+  view.querySelectorAll('[data-who]').forEach(b => b.onclick = () => { setSetting('mapWho', b.dataset.who); rerender(); });
+  const top = $('#mapbox').getBoundingClientRect().top + window.scrollY;
+  curMap = await mountMap($('#mapbox'), all, { style: mapStyle(), height: fitH(top + 150), seed: 'all-footprints', day: null, noPills: true, wantMe: true, merge: true, cluster: true, trips,
+    onTrip: tid => { location.hash = `map/${tid}`; },
+    onPick: c => { if (!isDailyC(c)) location.hash = `map/${c.tripId}`; else if (c._n > 1) visitsSheet(c); else location.hash = `c/${c.id}`; } });
   showMe();
 }
 
@@ -1110,7 +1106,7 @@ async function trip(id) {
     <div class="dayseg" id="daytabs"></div>
     <div id="mapbox"></div>
     <div class="daylist" id="daylist"></div>
-    <div class="mapbar">${styleSeg()}<span class="row" style="margin:0"><button class="btn sm" id="conn">${icon('flower')}連起來</button><a class="btn sm" href="#map/${id}">${icon('map')}放大</a></span></div>
+    <div class="mapbar"><button class="btn sm" id="conn">${icon('flower')}連起來</button><a class="btn sm" href="#map/${id}">${icon('map')}在地圖上看</a></div>
     ${mapLegend()}
     ${days.map((d, i) => { const th = (t.dayThemes || {})[d.k] ? getTheme(t.dayThemes[d.k]) : null; return `<h2 class="h2 day">${isDaily(t) ? '' : `<span class="dn">第 ${i + 1} 天</span>`}${fmtDate(d.ts)}<button class="tchip" data-day="${d.k}" aria-label="更改這天的花園主題">${th ? `${themeIcon(th, 22)}${esc(th.name)}` : '選花園主題'}</button></h2><div class="cards">${d.items.map(cardHTML).join('')}</div>`; }).join('') || '<p class="empty" style="margin-top:14px">這趟旅程還沒有打卡。</p>'}
     <div class="row"><a class="btn main" href="#video/${id}">${icon('play')}一鍵生成短片</a><a class="btn" href="#card/${id}">${icon('flower')}做足跡明信片</a></div>
@@ -1287,6 +1283,11 @@ async function settings() {
       <label class="switch"><span><b>孩子打卡</b><br><span class="muted sm">孩子有自己的打卡頁和吊飾；地圖可以分開看大人和孩子。關掉後只會隱藏，紀錄都還在。</span></span><input type="checkbox" id="kidm" ${kidOn() ? 'checked' : ''}></label>
     </section>
     <section class="sec">
+      <h2 class="h2">地圖樣式</h2>
+      <p class="muted sm">會用在採蜜地圖和一鍵短片。夜空在短片和明信片裡最明顯。</p>
+      ${styleSeg()}
+    </section>
+    <section class="sec">
       <h2 class="h2">NFC 吊飾網址</h2>
       <p class="muted sm">用「NFC Tools」App 把下面的網址寫進吊飾。</p>
       <b>大人吊飾</b><div class="copyrow"><code>${esc(adultUrl)}</code><button class="btn sm" data-copy="${esc(adultUrl)}">複製</button></div>
@@ -1329,6 +1330,7 @@ async function settings() {
   $('#cnew').onclick = async () => { if (await customEditor()) rerender(); };
   view.querySelectorAll('[data-ced]').forEach(b => b.onclick = async () => { const t = listCustom().find(x => x.id === b.dataset.ced); if (t && await customEditor(t)) rerender(); });
   view.querySelectorAll('[data-cdel]').forEach(b => b.onclick = async () => { if (await confirmDlg('刪除這個自訂主題？已經用這個主題的日子會變回預設草地。', '刪除')) { deleteCustom(b.dataset.cdel); rerender(); } });
+  view.querySelectorAll('[data-style]').forEach(b => b.onclick = () => { setSetting('mapStyle', b.dataset.style); view.querySelectorAll('[data-style]').forEach(x => x.classList.toggle('on', x === b)); toast(`地圖樣式：${b.textContent}`); });
   $('#kidm').onchange = e => { setSetting('kidMode', e.target.checked ? 'on' : 'off'); toast(e.target.checked ? '已開啟孩子打卡' : '已關閉孩子打卡，紀錄都還在'); rerender(); };
   $('#demo').checked = isDemo();
   $('#demo').onchange = e => { if (e.target.checked) setSetting('demo', '1'); else demoOff(); toast(e.target.checked ? '已開啟模擬模式' : '已關閉模擬模式'); };

@@ -715,3 +715,17 @@ body.kid{background:var(--kid-bg) var(--pattern);color:var(--kid-ink)}
 .cap-anim.melt .hx-fill,.cap-anim.melt .hx-wave{transform:translateY(-72px)}
 .mapbar{flex-wrap:nowrap;gap:8px}
 .mapbar .seg button{padding:7px 10px;font-size:13.5px}
+
+/* v0.14：地圖不再壓到底部分頁；拉遠時一趟旅行一朵大花；只看這一趟 */
+.mapwrap{isolation:isolate;z-index:0}
+.tabs{z-index:9}
+.tripmk{position:relative;width:54px;height:54px;cursor:pointer;filter:drop-shadow(0 2px 4px rgba(0,0,0,.22))}
+.tripmk svg{display:block}
+.trip-tag{position:absolute;left:50%;top:48px;transform:translateX(-50%);padding:3px 10px;border-radius:999px;background:var(--honey,#F2B632);border:2px solid #fff;display:flex;flex-direction:column;align-items:center;line-height:1.15;white-space:nowrap}
+.trip-tag b{font:800 12.5px var(--font);color:#3A2600}
+.trip-tag small{font:700 10.5px var(--font-num);color:#5A3A00}
+.focuscard{display:flex;align-items:center;gap:10px;margin:10px 0 4px;padding:10px 12px;border-radius:var(--radius-lg);background:var(--card);box-shadow:var(--shadow)}
+.focuscard>div{flex:1;min-width:0;display:flex;flex-direction:column}
+.focuscard>div b{font:800 16px var(--font);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.focuscard>div small{font:600 12.5px var(--font);color:var(--ink-soft)}
+.focuscard .btn{flex-shrink:0}
