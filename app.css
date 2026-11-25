@@ -729,3 +729,28 @@ body.kid{background:var(--kid-bg) var(--pattern);color:var(--kid-ink)}
 .focuscard>div b{font:800 16px var(--font);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .focuscard>div small{font:600 12.5px var(--font);color:var(--ink-soft)}
 .focuscard .btn{flex-shrink:0}
+
+/* v0.15：每趟旅行的花色跟著明信片配色；沒做明信片＝淺灰 */
+.tp-honey{--mk-flower:var(--pc-honey-petal);--mk-center:var(--pc-honey-center);--mk-center-hi:#FFE08A;--mk-stem:var(--pc-honey-center)}
+.tp-sakura{--mk-flower:var(--pc-sakura-petal);--mk-center:var(--pc-sakura-center);--mk-center-hi:#FFE3EC;--mk-stem:var(--pc-sakura-center)}
+.tp-mint{--mk-flower:var(--pc-mint-petal);--mk-center:var(--pc-mint-center);--mk-center-hi:#D8F3E3;--mk-stem:var(--pc-mint-stem,var(--pc-mint-center))}
+.tp-night{--mk-flower:var(--trip-night-petal);--mk-center:var(--trip-night-center);--mk-center-hi:#9FB2E6;--mk-stem:var(--trip-night-center)}
+.tp-gray{--mk-flower:var(--trip-gray-petal);--mk-center:var(--trip-gray-center);--mk-center-hi:#fff;--mk-stem:var(--trip-gray-edge)}
+.tp-gray .mk-petal{stroke:var(--trip-gray-edge);stroke-width:1.1}
+.tp-gray .mk-center{stroke:var(--trip-gray-edge);stroke-width:1}
+.tripmk.tp-gray .trip-tag{background:#fff;border-color:var(--trip-gray-edge)}
+.tripmk.tp-sakura .trip-tag{background:var(--pc-sakura-petal)}
+.tripmk.tp-mint .trip-tag{background:var(--pc-mint-petal)}
+.tripmk.tp-night .trip-tag{background:var(--trip-night-center)}
+.tripmk.tp-night .trip-tag b,.tripmk.tp-night .trip-tag small{color:#fff}
+/* v0.15：明信片拼圖：拖拉換位置、拖動調整露出的部分 */
+.pc-stage{position:relative}
+.pc-tiles{position:absolute;inset:0;pointer-events:none}
+.pc-tile{position:absolute;pointer-events:auto;touch-action:none;-webkit-touch-callout:none;user-select:none;-webkit-user-select:none;border-radius:6px;background-repeat:no-repeat;cursor:grab;transition:transform .15s,box-shadow .15s}
+.pc-tile.panning{outline:3px solid var(--honey,#F2B632);outline-offset:-3px;cursor:move}
+.pc-tile.lift{opacity:.35}
+.pc-tile.target{outline:3px dashed var(--honey-deep,#D98A00);outline-offset:-3px;background:rgba(242,182,50,.18)}
+.pc-ghost{position:fixed;z-index:90;pointer-events:none;border-radius:10px;background-size:cover;background-position:center;box-shadow:0 10px 28px rgba(0,0,0,.3);transform:scale(1.06) rotate(-2deg);opacity:.92}
+.pc-edit{display:flex;align-items:center;gap:10px;margin-top:10px;text-align:left}
+.pc-edit p{margin:0;flex:1}
+.pc-edit .btn{flex-shrink:0}

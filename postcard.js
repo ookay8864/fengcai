@@ -15,7 +15,7 @@ export const PC_W = 1080, PC_H = 1350;
 export const SIZES = { '4:5': 1350, '9:16': 1920, '1:1': 1080 };
 export const PALETTES = { honey: '蜂蜜黃', sakura: '櫻花粉', mint: '薄荷綠', night: '夜空藍' };
 export const TEMPLATES = { A: '旅程總覽', B: '照片拼貼', C: '一日一張', D: '孩子的花園' };
-export const DEFAULT_PC = { tpl: 'A', size: '4:5', palette: 'honey', style: 'normal', show: { list: true, stats: true, photos: true, quote: true }, title: '', subtitle: '', quote: '', photoIds: null, day: 0 };
+export const DEFAULT_PC = { tpl: 'A', size: '4:5', palette: 'honey', style: 'normal', show: { list: true, stats: true, photos: true, quote: true }, title: '', subtitle: '', quote: '', photoIds: null, day: 0, layout: 0, crops: {} };
 
 const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('圖片載入失敗')); i.src = src; });
 async function blobImg(b) {
@@ -54,11 +54,35 @@ export function rr(ctx, x, y, w, h, r) {
   ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
-function cover(ctx, img, x, y, w, h, r, f) {
+// f：焦點（讓這一點盡量在中間）；crop：拼圖裡自己拖過的位置（0～1，跟 CSS background-position 一樣）
+function cover(ctx, img, x, y, w, h, r, f, crop) {
   const iw = img.width, ih = img.height, s = Math.max(w / iw, h / ih), dw = iw * s, dh = ih * s;
-  const fx = f ? f.x : .5, fy = f ? f.y : .5;
-  const ox = Math.min(x, Math.max(x + w - dw, x + w / 2 - fx * dw)), oy = Math.min(y, Math.max(y + h - dh, y + h / 2 - fy * dh));
+  let ox, oy;
+  if (crop) { ox = x + (w - dw) * crop.x; oy = y + (h - dh) * crop.y; }
+  else {
+    const fx = f ? f.x : .5, fy = f ? f.y : .5;
+    ox = Math.min(x, Math.max(x + w - dw, x + w / 2 - fx * dw)); oy = Math.min(y, Math.max(y + h - dh, y + h / 2 - fy * dh));
+  }
   ctx.save(); rr(ctx, x, y, w, h, r); ctx.clip(); ctx.drawImage(img, ox, oy, dw, dh); ctx.restore();
+  return { dw, dh, cx: dw > w + .5 ? (ox - x) / (w - dw) : .5, cy: dh > h + .5 ? (oy - y) / (h - dh) : .5 };
+}
+// 拼圖版型：每種張數 1～3 種排法（比例座標 [x, y, 寬, 高]）
+const T3 = 1 / 3, T2 = 2 / 3;
+export const COLLAGE = {
+  1: [[[0, 0, 1, 1]]],
+  2: [[[0, 0, .5, 1], [.5, 0, .5, 1]], [[0, 0, 1, .5], [0, .5, 1, .5]], [[0, 0, .62, 1], [.62, 0, .38, 1]]],
+  3: [[[0, 0, .62, 1], [.62, 0, .38, .5], [.62, .5, .38, .5]], [[0, 0, 1, .6], [0, .6, .5, .4], [.5, .6, .5, .4]], [[0, 0, T3, 1], [T3, 0, T3, 1], [T2, 0, T3, 1]]],
+  4: [[[0, 0, .5, .5], [.5, 0, .5, .5], [0, .5, .5, .5], [.5, .5, .5, .5]], [[0, 0, 1, .6], [0, .6, T3, .4], [T3, .6, T3, .4], [T2, .6, T3, .4]], [[0, 0, .62, 1], [.62, 0, .38, T3], [.62, T3, .38, T3], [.62, T2, .38, T3]]],
+  5: [[[0, 0, .5, 1], [.5, 0, .25, .5], [.75, 0, .25, .5], [.5, .5, .25, .5], [.75, .5, .25, .5]], [[0, 0, .5, .55], [.5, 0, .5, .55], [0, .55, T3, .45], [T3, .55, T3, .45], [T2, .55, T3, .45]], [[0, 0, 1, .6], [0, .6, .25, .4], [.25, .6, .25, .4], [.5, .6, .25, .4], [.75, .6, .25, .4]]],
+  6: [[[0, 0, T3, .5], [T3, 0, T3, .5], [T2, 0, T3, .5], [0, .5, T3, .5], [T3, .5, T3, .5], [T2, .5, T3, .5]], [[0, 0, .5, T3], [.5, 0, .5, T3], [0, T3, .5, T3], [.5, T3, .5, T3], [0, T2, .5, T3], [.5, T2, .5, T3]], [[0, 0, T2, T2], [T2, 0, T3, T3], [T2, T3, T3, T3], [0, T2, T3, T3], [T3, T2, T3, T3], [T2, T2, T3, T3]]]
+};
+export const MAX_PC_PHOTOS = 6, AUTO_PC_PHOTOS = 4;
+function collageRects(n, v, X, Y, W, H, g = 20) {
+  const set = COLLAGE[n] || COLLAGE[1], L = set[((v % set.length) + set.length) % set.length];
+  return L.map(([fx, fy, fw, fh]) => {
+    const l = fx > .001 ? g / 2 : 0, r = fx + fw < .999 ? g / 2 : 0, t = fy > .001 ? g / 2 : 0, b = fy + fh < .999 ? g / 2 : 0;
+    return { x: X + fx * W + l, y: Y + fy * H + t, w: fw * W - l - r, h: fh * H - t - b };
+  });
 }
 export function wrap(ctx, text, maxW, maxLines) {
   const lines = []; let cur = '';
@@ -160,7 +184,7 @@ async function pickPhotos(data, opt, n) {
   for (const m of list) {
     if (out.length >= n) break;
     const img = await blobImg(m.kind === 'photo' ? m.blob : m.thumb);
-    if (img) out.push({ img, f: m.focus, c: m.c });
+    if (img) out.push({ img, f: m.focus, c: m.c, id: m.id });
   }
   return out;
 }
@@ -260,13 +284,19 @@ export async function renderPostcard(data, o = {}) {
   const quote = (opt.quote || '').trim();
 
   if (opt.tpl === 'B') {
-    const pics = await pickPhotos(data, opt, 4);
+    const want = opt.photoIds && opt.photoIds.length ? Math.min(MAX_PC_PHOTOS, opt.photoIds.length) : AUTO_PC_PHOTOS;
+    const pics = await pickPhotos(data, opt, want);
     const X = 60, Y = 60, Wd = W - 120, Ht = Math.round(H * (H > 1500 ? .56 : H < 1200 ? .46 : .52));
+    cv.tiles = [];
     if (!pics.length) { rr(ctx, X, Y, Wd, Ht, 34); ctx.fillStyle = P.card; ctx.fill(); T(ctx, '這趟旅程還沒有照片', W / 2, Y + Ht / 2, 36, P.soft, 700, 'center'); }
-    else if (pics.length === 1) cover(ctx, pics[0].img, X, Y, Wd, Ht, 34, pics[0].f);
-    else if (pics.length === 2) { cover(ctx, pics[0].img, X, Y, Wd / 2 - 10, Ht, 30, pics[0].f); cover(ctx, pics[1].img, X + Wd / 2 + 10, Y, Wd / 2 - 10, Ht, 30, pics[1].f); }
-    else if (pics.length === 3) { cover(ctx, pics[0].img, X, Y, Wd * .62, Ht, 30, pics[0].f); cover(ctx, pics[1].img, X + Wd * .62 + 20, Y, Wd * .38 - 20, Ht / 2 - 10, 26, pics[1].f); cover(ctx, pics[2].img, X + Wd * .62 + 20, Y + Ht / 2 + 10, Wd * .38 - 20, Ht / 2 - 10, 26, pics[2].f); }
-    else { const w2 = Wd / 2 - 10, h2 = Ht / 2 - 10; pics.slice(0, 4).forEach((p, i) => cover(ctx, p.img, X + (i % 2) * (w2 + 20), Y + Math.floor(i / 2) * (h2 + 20), w2, h2, 26, p.f)); }
+    else {
+      const crops = opt.crops || {}, rad = pics.length >= 4 ? 22 : pics.length === 1 ? 34 : 28;
+      collageRects(pics.length, opt.layout || 0, X, Y, Wd, Ht).forEach((q, i) => {
+        const p = pics[i], u = cover(ctx, p.img, q.x, q.y, q.w, q.h, rad, p.f, crops[p.id]);
+        cv.tiles.push({ id: p.id, ...q, ...u });
+      });
+    }
+    cv.layouts = (COLLAGE[pics.length] || []).length;
     const by = Y + Ht + 36, qh = opt.show.quote && quote ? 110 : 0;
     const ms = Math.max(260, Math.min(H > 1500 ? 520 : 440, H - by - 90 - qh));
     shadowCard(ctx, 60, by, ms, ms, 36, P.card);

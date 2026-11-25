@@ -5,7 +5,7 @@ import { getPosition, peekPosition, nearby, searchPlaces, inMainland, badgeOf, B
 import { compressImage, videoThumb, startRecorder, blobDims } from './media.js';
 import { mountMap, gardenSVG, dayInfo, defaultDay, markerSVG, markerNumSVG, whoText, isDailyC } from './map.js';
 import { allThemes, getTheme, themeIcon, itemIcon, ITEMS, GROUNDS, listCustom, saveCustom, deleteCustom } from './themes.js';
-import { collect, renderPostcard, DEFAULT_PC, PALETTES, TEMPLATES, SIZES } from './postcard.js';
+import { collect, renderPostcard, DEFAULT_PC, PALETTES, TEMPLATES, SIZES, MAX_PC_PHOTOS } from './postcard.js';
 import { makeVideo, estimate, canMakeVideo, selectVisuals, layoutItems, stopDuration, voiceLen, isLand, PER_STOP } from './video.js';
 import { TRACKS } from './music.js';
 import { $, esc, toast, confirmDlg, inputDlg, fmtTime, fmtDate, dayKey, uid, icon } from './ui.js';
@@ -685,6 +685,8 @@ function visitsSheet(c) {
   (async () => { for (const v of vs.slice(0, 60)) { const m = (await store.listMedia(v.id)).find(x => x.kind !== 'audio' && (x.thumb || x.kind === 'photo')); const el = sb.querySelector(`[data-vth="${v.id}"]`); if (m && el) el.innerHTML = `<img src="${ou(m.thumb || m.blob)}" alt="">`; } })().catch(() => {});
 }
 
+// 旅行的花色＝明信片選的配色；還沒做明信片＝淺灰
+const palOfTrip = t => (t.pc && t.pc.palette && PALETTES[t.pc.palette] ? t.pc.palette : 'gray');
 async function mapView(id) {
   // 地圖頁只有「全部足跡」；#map/<旅行包> 是「只看這一趟」
   const fitH = extra => Math.max(300, Math.min(600, window.innerHeight - extra));
@@ -711,7 +713,7 @@ async function mapView(id) {
       <div id="mapbox"></div>
       <div class="daylist" id="daylist"></div>
       ${mapLegend()}${keyNote}`;
-    await attachMap($('#mapbox'), cs, fitH(290), t.id, isDaily(t), { wantMe: true });
+    await attachMap($('#mapbox'), cs, fitH(290), t.id, isDaily(t), { wantMe: true, tripPal: isDaily(t) ? null : { [t.id]: palOfTrip(t) } });
     // 旅行一打開就沿著順序串起來
     const conn = $('#conn');
     if (!isDaily(t) && conn && !conn.disabled) setTimeout(() => { if ($('#conn') === conn) conn.click(); }, 500);
@@ -728,8 +730,8 @@ async function mapView(id) {
   for (const t of ts) all = all.concat(await store.listCheckins(t.id));
   all = byWho(all);
   all.sort((p, q) => p.ts - q.ts);
-  const trips = {};
-  ts.forEach(t => { trips[t.id] = { name: t.name }; });
+  const trips = {}, tripPal = {};
+  ts.forEach(t => { trips[t.id] = { name: t.name }; if (!isDaily(t)) tripPal[t.id] = palOfTrip(t); });
   view.innerHTML = `<div class="row between"><h1 class="h1">採蜜地圖</h1><span class="muted sm">${all.length} 個地點</span></div>
     ${demoBar()}
     ${whoSeg ? `<div class="mapbar">${whoSeg}</div>` : ''}
@@ -739,7 +741,7 @@ async function mapView(id) {
   bindDemoBar();
   view.querySelectorAll('[data-who]').forEach(b => b.onclick = () => { setSetting('mapWho', b.dataset.who); rerender(); });
   const top = $('#mapbox').getBoundingClientRect().top + window.scrollY;
-  curMap = await mountMap($('#mapbox'), all, { style: mapStyle(), height: fitH(top + 150), seed: 'all-footprints', day: null, noPills: true, wantMe: true, merge: true, cluster: true, trips,
+  curMap = await mountMap($('#mapbox'), all, { style: mapStyle(), height: fitH(top + 150), seed: 'all-footprints', day: null, noPills: true, wantMe: true, merge: true, cluster: true, trips, tripPal,
     onTrip: tid => { location.hash = `map/${tid}`; },
     onPick: c => { if (!isDailyC(c)) location.hash = `map/${c.tripId}`; else if (c._n > 1) visitsSheet(c); else location.hash = `c/${c.id}`; } });
   showMe();
@@ -989,6 +991,7 @@ async function cardView(id) {
   if (!data) { location.hash = 'trips'; return; }
   const t = data.trip;
   const pc = { ...DEFAULT_PC, style: mapStyle(), ...(t.pc || {}) };
+  pc.crops = { ...(pc.crops || {}) };
   pc.show = { ...DEFAULT_PC.show, ...((t.pc || {}).show || {}) };
   const info = dayInfo(data.cs);
   let blob = null, url = null, timer = null, busy = 0, panel = null;
@@ -999,9 +1002,71 @@ async function cardView(id) {
     <div class="dayseg" id="pcday"></div>
     <div class="pcchips" id="pcchips" role="group" aria-label="調整"></div>
     <div id="pcpanel" class="pcpanel" hidden></div>
-    <div class="pc-prev"><img id="pimg" alt="明信片預覽"><p id="pinfo" class="muted">產生中…</p></div>
+    <div class="pc-prev"><div class="pc-stage" id="pstage"><img id="pimg" alt="明信片預覽"><div class="pc-tiles" id="ptiles"></div></div><div class="pc-edit" id="pedit" hidden><button class="btn sm" id="relay">${icon('edit')}換一種排法</button><p class="muted sm">按住照片半秒再拖到別格，可以換位置；直接拖，可以調整照片露出的部分。</p></div><p id="pinfo" class="muted">產生中…</p></div>
     <div class="row"><button class="btn main" id="psave">${icon('check')}儲存到相簿／分享</button></div>
     <p class="note sm">按下後在選單裡選「<b>儲存影像</b>」就會存進相簿；也可以長按上面的圖片，選「加入照片」。</p>`;
+  // ---- 拼圖編輯：按住半秒再拖＝換位置；直接拖＝調整露出的部分 ----
+  let tiles = [], CW = 1, CH = 1;
+  const mediaUrl = id => { const m = data.media.find(x => x.id === id); return m ? ou(m.kind === 'photo' ? m.blob : m.thumb) : ''; };
+  const drawTiles = cv => {
+    const box = $('#ptiles'), ed = $('#pedit');
+    tiles = pc.tpl === 'B' && cv.tiles ? cv.tiles : []; CW = cv.width; CH = cv.height;
+    ed.hidden = !tiles.length;
+    $('#relay').hidden = !(cv.layouts > 1);
+    box.innerHTML = tiles.map((q, i) => `<div class="pc-tile" data-i="${i}" style="left:${q.x / CW * 100}%;top:${q.y / CH * 100}%;width:${q.w / CW * 100}%;height:${q.h / CH * 100}%"></div>`).join('');
+    box.querySelectorAll('.pc-tile').forEach(bindTile);
+  };
+  const orderNow = () => tiles.map(q => q.id);
+  function bindTile(el) {
+    const q = tiles[+el.dataset.i];
+    let st = null;
+    const end = () => { if (!st) return; clearTimeout(st.timer); if (st.ghost) st.ghost.remove(); $('#ptiles').querySelectorAll('.pc-tile').forEach(x => x.classList.remove('lift', 'target')); st = null; };
+    el.onpointerdown = e => {
+      e.preventDefault(); el.setPointerCapture(e.pointerId);
+      const scale = CW / $('#pstage').getBoundingClientRect().width;
+      st = { x0: e.clientX, y0: e.clientY, mode: null, scale, cx: q.cx, cy: q.cy };
+      st.timer = setTimeout(() => {
+        if (!st || st.mode) return;
+        st.mode = 'swap'; el.classList.add('lift'); navigator.vibrate?.(12);
+        const r = el.getBoundingClientRect(), g = document.createElement('div');
+        g.className = 'pc-ghost'; g.style.cssText = `width:${r.width}px;height:${r.height}px;left:${r.left}px;top:${r.top}px;background-image:url(${mediaUrl(q.id)})`;
+        document.body.appendChild(g); st.ghost = g; st.gx = r.left - e.clientX; st.gy = r.top - e.clientY;
+      }, 450);
+    };
+    el.onpointermove = e => {
+      if (!st) return;
+      const dx = e.clientX - st.x0, dy = e.clientY - st.y0;
+      if (!st.mode && Math.hypot(dx, dy) > 8) {
+        clearTimeout(st.timer); st.mode = 'pan';
+        el.classList.add('panning');
+        el.style.backgroundImage = `url(${mediaUrl(q.id)})`;
+        el.style.backgroundSize = `${q.dw / q.w * 100}% ${q.dh / q.h * 100}%`;
+      }
+      if (st.mode === 'pan') {
+        const ex = q.dw - q.w, ey = q.dh - q.h;
+        st.nx = ex > 1 ? Math.min(1, Math.max(0, st.cx - dx * st.scale / ex)) : .5;
+        st.ny = ey > 1 ? Math.min(1, Math.max(0, st.cy - dy * st.scale / ey)) : .5;
+        el.style.backgroundPosition = `${st.nx * 100}% ${st.ny * 100}%`;
+      } else if (st.mode === 'swap') {
+        st.ghost.style.left = `${e.clientX + st.gx}px`; st.ghost.style.top = `${e.clientY + st.gy}px`;
+        const t = document.elementFromPoint(e.clientX, e.clientY)?.closest('.pc-tile');
+        $('#ptiles').querySelectorAll('.pc-tile').forEach(x => x.classList.toggle('target', x === t && x !== el));
+        st.target = t && t !== el ? +t.dataset.i : null;
+      }
+    };
+    el.onpointerup = () => {
+      if (!st) return;
+      if (st.mode === 'pan' && st.nx != null) { pc.crops[q.id] = { x: +st.nx.toFixed(3), y: +st.ny.toFixed(3) }; changed(); }
+      else if (st.mode === 'swap' && st.target != null) {
+        const ids = orderNow(), a = +el.dataset.i, b = st.target;
+        [ids[a], ids[b]] = [ids[b], ids[a]];
+        pc.photoIds = ids; changed();
+      }
+      end();
+    };
+    el.onpointercancel = () => { el.classList.remove('panning'); el.style.backgroundImage = ''; end(); };
+  }
+  $('#relay').onclick = () => { pc.layout = (pc.layout || 0) + 1; changed(); };
   const gen = async () => {
     const my = ++busy;
     $('#pinfo').textContent = '產生中…';
@@ -1012,6 +1077,7 @@ async function cardView(id) {
       if (url) URL.revokeObjectURL(url);
       url = URL.createObjectURL(blob);
       $('#pimg').src = url;
+      drawTiles(cv);
       $('#pinfo').textContent = cv.notes && cv.notes.length ? `這個尺寸放不下：${cv.notes.join('、')}。可以改成 9:16，或在「顯示內容」關掉行程清單。` : '';
     } catch (e) { console.error(e); $('#pinfo').textContent = '產生失敗：' + e.message; }
   };
@@ -1052,11 +1118,12 @@ async function cardView(id) {
     } else if (k === 'photos') {
       const vis = data.media.filter(m => m.thumb || m.kind === 'photo');
       const chosen = pc.photoIds && pc.photoIds.length ? pc.photoIds : null;
-      el.innerHTML = vis.length ? `<p class="muted sm">最多選 4 張。沒有選的話，會用精選照片。</p><div class="pcphotos">${vis.map(m => { const i = chosen ? chosen.indexOf(m.id) : -1; return `<button data-ph="${m.id}" class="${i >= 0 ? 'on' : ''}"><img src="${ou(m.thumb || m.blob)}" alt="">${i >= 0 ? `<b>${i + 1}</b>` : ''}${m.star ? `<span class="vt-star">${icon('star')}</span>` : ''}</button>`; }).join('')}</div><div class="row"><button class="btn sm" id="phreset">改回用精選照片</button></div>` : '<p class="muted">這趟旅程還沒有照片。</p>';
+      el.innerHTML = vis.length ? `<p class="muted sm">可以選 1 到 ${pc.tpl === 'B' ? MAX_PC_PHOTOS : 4} 張，照選的順序排。沒有選的話，會用 4 張精選照片。</p><div class="pcphotos">${vis.map(m => { const i = chosen ? chosen.indexOf(m.id) : -1; return `<button data-ph="${m.id}" class="${i >= 0 ? 'on' : ''}"><img src="${ou(m.thumb || m.blob)}" alt="">${i >= 0 ? `<b>${i + 1}</b>` : ''}${m.star ? `<span class="vt-star">${icon('star')}</span>` : ''}</button>`; }).join('')}</div><div class="row"><button class="btn sm" id="phreset">改回用精選照片</button></div>` : '<p class="muted">這趟旅程還沒有照片。</p>';
       el.querySelectorAll('[data-ph]').forEach(b => b.onclick = () => {
         const ids = pc.photoIds ? [...pc.photoIds] : [];
         const i = ids.indexOf(b.dataset.ph);
-        if (i >= 0) ids.splice(i, 1); else if (ids.length >= 4) { toast('最多 4 張'); return; } else ids.push(b.dataset.ph);
+        const lim = pc.tpl === 'B' ? MAX_PC_PHOTOS : 4;
+        if (i >= 0) ids.splice(i, 1); else if (ids.length >= lim) { toast(`最多 ${lim} 張`); return; } else ids.push(b.dataset.ph);
         pc.photoIds = ids.length ? ids : null; openPanel('photos', true); changed();
       });
       if ($('#phreset')) $('#phreset').onclick = () => { pc.photoIds = null; openPanel('photos', true); changed(); };

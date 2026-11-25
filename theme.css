@@ -117,6 +117,7 @@
   --pc-night-bg:#1E2440; --pc-night-ink:#F6F1E3; --pc-night-soft:#B9BDD6; --pc-night-accent:#FFC94A; --pc-night-card:#2C3458; --pc-night-chip:#3A4370;
   /* 明信片配色裡的地圖：mapbg 地圖底、grid 格線、petal 花瓣／葉子、center 花心邊、route 路線、kid 孩子蜜蜂的底、stem 葉梗
      meadow 可愛版草地上／下。夜空配色直接用上面「地圖：夜空版」那組 */
+  --trip-gray-petal:#E4E1DA; --trip-gray-center:#FFFFFF; --trip-gray-edge:#9C978C; --trip-night-petal:#E8B84A; --trip-night-center:#2B3A67;
   --pc-honey-mapbg:#FFFDF6; --pc-honey-grid:#F1E6CC; --pc-honey-petal:#F7B500; --pc-honey-center:#E07B00; --pc-honey-route:#D98A00; --pc-honey-kid:#FFE3EC; --pc-honey-meadow1:#FFF1B8; --pc-honey-meadow2:#CDEFB0;
   --pc-sakura-mapbg:#FFF8FA; --pc-sakura-grid:#F7DDE5; --pc-sakura-petal:#F7A8C2; --pc-sakura-center:#E05A86; --pc-sakura-route:#E8779B; --pc-sakura-kid:#FFF1C9; --pc-sakura-meadow1:#FFEAF1; --pc-sakura-meadow2:#FBD3E0;
   --pc-mint-mapbg:#F6FBF7; --pc-mint-grid:#D6ECDF; --pc-mint-petal:#5CBF8A; --pc-mint-center:#2A8A5C; --pc-mint-route:#3FA374; --pc-mint-kid:#FFF1C9; --pc-mint-meadow1:#EAF7E4; --pc-mint-meadow2:#C9EBC9; --pc-mint-stem:#2A8A5C;

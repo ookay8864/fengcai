@@ -190,11 +190,11 @@ function tripGroups(pts) {
   pts.forEach(p => { if (isDailyC(p)) return; if (!m.has(p.tripId)) m.set(p.tripId, []); m.get(p.tripId).push(p); });
   return [...m].map(([id, g]) => ({ id, pts: g, lat: g.reduce((a, p) => a + p.lat, 0) / g.length, lng: g.reduce((a, p) => a + p.lng, 0) / g.length }));
 }
-function tripBadgeHTML(id, g, trips) {
+function tripBadgeHTML(id, g, trips, pal) {
   const t = (trips && trips[id]) || {}, days = new Set(g.map(p => dayKey(p.ts))).size;
-  const name = t.name || '一趟旅行', kid = g.some(isKid);
-  const petals = [0, 72, 144, 216, 288].map(a => `<circle cx="${(11 * Math.cos((a - 90) * Math.PI / 180)).toFixed(1)}" cy="${(11 * Math.sin((a - 90) * Math.PI / 180)).toFixed(1)}" r="9.5" class="mk-petal mk-edge"/>`).join('');
-  return `<div class="tripmk"><svg viewBox="-24 -24 48 48" width="54" height="54" aria-hidden="true">${petals}<circle r="7.5" class="mk-center"/>${kid ? `<g transform="translate(12 -14) scale(.45)">${BEE}</g>` : ''}</svg><span class="trip-tag"><b>${esc(name.length > 10 ? name.slice(0, 9) + '…' : name)}</b><small>${days} 天 · ${g.length} 站</small></span></div>`;
+  const name = t.name || '一趟旅行', kid = g.some(isKid), p = pal || 'honey';
+  const shape = withShape(SHAPES[p] || 'flower', () => flowerShape(0, 0, 17));
+  return `<div class="tripmk tp tp-${p}"><svg viewBox="-24 -24 48 48" width="54" height="54" aria-hidden="true">${shape}${kid ? `<g transform="translate(12 -14) scale(.45)">${BEE}</g>` : ''}</svg><span class="trip-tag"><b>${esc(name.length > 10 ? name.slice(0, 9) + '…' : name)}</b><small>${days} 天 · ${g.length} 站</small></span></div>`;
 }
 // 一群點的中心和範圍
 function groupInfo(g) {
@@ -386,6 +386,13 @@ function amapMarker(c, num, faded, style, label) {
   const cute = style === 'cute', sc = cute ? 1.3 : 1.1, sz = Math.round(44 * sc);
   return `<div class="amk${faded ? ' faded' : ''}"><svg viewBox="${-sz / 2} ${-sz / 2} ${sz} ${sz}" width="${sz}" height="${sz}">${markerSVG(0, 0, c, num, sc, !faded && cute ? 'bob' : '')}</svg>${label ? `<span>${esc(shortName(c.placeName))}</span>` : ''}</div>`;
 }
+// 每趟旅行的花用那趟明信片的配色和造型；還沒做明信片＝淺灰
+const tripPalOf = (opt, c) => (!opt.tripPal || isDailyC(c) ? null : opt.tripPal[c.tripId] || 'gray');
+function tripMarker(opt, c, num, faded, style, label) {
+  const p = tripPalOf(opt, c);
+  if (!p) return amapMarker(c, num, faded, style, label);
+  return `<div class="tp tp-${p}">${withShape(SHAPES[p] || 'flower', () => amapMarker(c, num, faded, style, label))}</div>`;
+}
 // 右下角「回到我的位置」按鈕（高德、開放地圖共用）
 function locButton(el, onClick) {
   const loc = document.createElement('button');
@@ -430,7 +437,7 @@ async function mountOSM(el, pts, info, opt) {
   const mkIcon = i => {
     if (tiers && isDailyC(pts[i])) { const { px, html } = glowHTML(pts[i]); return L.divIcon({ html, className: 'leaf-mk', iconSize: [px, px], iconAnchor: [px / 2, px / 2] }); }
     const c = pts[i], sel = opt.day != null && on(i), sc = opt.style === 'cute' ? 1.3 : 1.1, sz = Math.round(44 * sc);
-    return L.divIcon({ html: amapMarker(c, sel ? info.num(c) : null, !on(i), opt.style, sel && opt.style !== 'cute'), className: 'leaf-mk', iconSize: [sz, sz], iconAnchor: [sz / 2, sz / 2] });
+    return L.divIcon({ html: tripMarker(opt, c, sel ? info.num(c) : null, !on(i), opt.style, sel && opt.style !== 'cute'), className: 'leaf-mk', iconSize: [sz, sz], iconAnchor: [sz / 2, sz / 2] });
   };
   const markers = pts.map((c, i) => {
     const glow = tiers && isDailyC(c);
@@ -454,7 +461,7 @@ async function mountOSM(el, pts, info, opt) {
     dots.forEach(d => { if (!d) return; if (near && !far) { if (!map.hasLayer(d)) d.addTo(map); } else d.remove(); });
     if (!far) return;
     tripGroups(pts).forEach(tg => {
-      const mk = L.marker([tg.lat, tg.lng], { icon: L.divIcon({ html: tripBadgeHTML(tg.id, tg.pts, opt.trips), className: 'leaf-mk', iconSize: [54, 54], iconAnchor: [27, 27] }), zIndexOffset: 400 })
+      const mk = L.marker([tg.lat, tg.lng], { icon: L.divIcon({ html: tripBadgeHTML(tg.id, tg.pts, opt.trips, tripPalOf(opt, tg.pts[0])), className: 'leaf-mk', iconSize: [54, 54], iconAnchor: [27, 27] }), zIndexOffset: 400 })
         .on('click', () => (opt.onTrip ? opt.onTrip(tg.id) : map.fitBounds(tg.pts.map(p => [p.lat, p.lng]), { padding: [60, 60], maxZoom: 15 }))).addTo(map);
       jars.push(mk);
     });
@@ -546,7 +553,7 @@ async function mountAMap(el, pts, info, opt) {
   const paint = () => markers.forEach((m, i) => {
     if (tiers && isDailyC(pts[i])) { m.setContent(glowHTML(pts[i]).html); return; }
     const sel = opt.day != null && on(i);
-    m.setContent(amapMarker(pts[i], sel ? info.num(pts[i]) : null, !on(i), opt.style, sel && opt.style !== 'cute'));
+    m.setContent(tripMarker(opt, pts[i], sel ? info.num(pts[i]) : null, !on(i), opt.style, sel && opt.style !== 'cute'));
     m.setzIndex(on(i) ? 200 + i : 100 + i);
   });
   const fit = () => { const ms = markers.filter((_, i) => on(i)); if (ms.length) map.setFitView(ms, false, [70, 60, 60, 60], 16); };
@@ -560,7 +567,7 @@ async function mountAMap(el, pts, info, opt) {
     dots.forEach(d => { if (!d) return; if (near && !far) { if (!d.getMap()) map.add(d); d.show(); } else d.hide(); });
     if (!far) return;
     tripGroups(pts).forEach(tg => {
-      const c = wgs2gcj(tg.lng, tg.lat), h = new AM.Marker({ position: c, anchor: 'center', zIndex: 400, content: tripBadgeHTML(tg.id, tg.pts, opt.trips) });
+      const c = wgs2gcj(tg.lng, tg.lat), h = new AM.Marker({ position: c, anchor: 'center', zIndex: 400, content: tripBadgeHTML(tg.id, tg.pts, opt.trips, tripPalOf(opt, tg.pts[0])) });
       h.on('click', () => (opt.onTrip ? opt.onTrip(tg.id) : map.setFitView(tg.pts.map(p => markers[pts.indexOf(p)]), false, [70, 60, 60, 60], 15)));
       jars.push(h);
     });
