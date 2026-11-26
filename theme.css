@@ -68,8 +68,8 @@
   /* 地圖上「我在這裡」的藍點 */
   --me-dot:#3B82F6;
   /* 旅行包月曆：有旅行的日子墊一朵淡花 */
-  --cal-flower:#FCE3A1;
-  --cal-flower-c:#FFF1C9;
+  --cal-flower:#F6C6D4;
+  --cal-flower-c:#FBE1EA;
   /* 地圖：夜空版（暗黑） */
   --night-bg:#161C33;
   --night-star:#F3E6C8;
@@ -153,10 +153,10 @@
     --kid-card:#3A2A10;
     --map-bg:#241909;
     --map-grid:#33250F;
-    --cal-flower:#5A4212;
+    --cal-flower:#6B3A4A;
     --sw-off:#3A2C18; --sw-off-ink:#8C7A5C;
     --sw-trip-tint:#3A2A0C; --sw-trip-line:#6B4E10;
     --sw-daily-tint:#16301C; --sw-daily-line:#2F6A3C;
-    --cal-flower-c:#6E5418;
+    --cal-flower-c:#7D4757;
   }
 }

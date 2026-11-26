@@ -24,7 +24,7 @@ const freeUrls = () => { urls.forEach(u => URL.revokeObjectURL(u)); urls = []; }
 // ---------- 路由 ----------
 let curMap = null;
 async function route(keepScroll = false) {
-  freeUrls();
+  freeUrls(); view.classList.remove('pcpage', 'pc-editing');
   if (curMap) { curMap.destroy(); curMap = null; }
   const [r, id] = location.hash.slice(1).split('/');
   const dailyId = (id || '').startsWith('daily-');
@@ -1168,16 +1168,24 @@ async function cardView(id) {
   pc.show = { ...DEFAULT_PC.show, ...((t.pc || {}).show || {}) };
   const info = dayInfo(data.cs);
   let blob = null, url = null, timer = null, busy = 0, panel = null;
-  const save = () => { clearTimeout(save.t); save.t = setTimeout(async () => { const tr = await store.getTrip(id); if (tr) { tr.pc = pc; await store.saveTrip(tr); } }, 400); };
+  // 存好的明信片固定不動；要按「編輯」才能改，「完成」才儲存，「取消」回到原本
+  let editing = !t.pc, snap = JSON.stringify(pc), dirty = false;
+  const save = () => { dirty = true; };
+  const commit = async () => { const tr = await store.getTrip(id); if (tr) { tr.pc = JSON.parse(JSON.stringify(pc)); await store.saveTrip(tr); } t.pc = JSON.parse(JSON.stringify(pc)); snap = JSON.stringify(pc); dirty = false; };
   view.innerHTML = `<a class="back" href="#trip/${id}">${icon('back')}${esc(t.name)}</a>
-    <h1 class="h1">足跡明信片</h1>
+    <div class="row between pchead"><h1 class="h1" style="margin:0">足跡明信片</h1>
+      <span class="pcmode-view"><button class="btn sm" id="pcedit">${icon('edit')}編輯</button></span>
+      <span class="pcmode-edit"><button class="btn sm" id="pccancel">取消</button><button class="btn main sm" id="pcdone">${icon('check')}完成</button></span></div>
+    <p class="muted sm pcmode-edit" style="margin:6px 0 0">正在編輯：改好按「完成」才會儲存。</p>
     <div class="tplrow" role="group" aria-label="版型">${Object.entries(TEMPLATES).map(([k, n]) => `<button data-tpl="${k}" class="${pc.tpl === k ? 'on' : ''}"><svg viewBox="0 0 60 75" width="60" height="75" aria-hidden="true">${TPL_THUMB[k]}</svg><span>${k} ${n}</span></button>`).join('')}</div>
     <div class="dayseg" id="pcday"></div>
     <div class="pcchips" id="pcchips" role="group" aria-label="調整"></div>
     <div id="pcpanel" class="pcpanel" hidden></div>
     <div class="pc-prev"><div class="pc-stage" id="pstage"><img id="pimg" alt="明信片預覽"><div class="pc-tiles" id="ptiles"></div></div><div class="pc-edit" id="pedit" hidden><button class="btn sm" id="relay">${icon('edit')}換一種排法</button><p class="muted sm">按住照片半秒再拖到別格，可以換位置；直接拖，可以調整照片露出的部分。</p></div><p id="pinfo" class="muted">產生中…</p></div>
-    <div class="row"><button class="btn main" id="psave">${icon('check')}儲存到相簿／分享</button></div>
-    <p class="note sm">按下後在選單裡選「<b>儲存影像</b>」就會存進相簿；也可以長按上面的圖片，選「加入照片」。</p>`;
+    <div class="pcmode-view"><div class="row"><button class="btn main" id="psave">${icon('check')}儲存到相簿／分享</button></div>
+    <p class="note sm">按下後在選單裡選「<b>儲存影像</b>」就會存進相簿；也可以長按上面的圖片，選「加入照片」。</p></div>`;
+  const setMode = on => { editing = on; view.classList.toggle('pc-editing', on); view.classList.add('pcpage'); };
+  setMode(editing);
   // ---- 拼圖編輯：按住半秒再拖＝換位置；直接拖＝調整露出的部分 ----
   let tiles = [], CW = 1, CH = 1;
   const mediaUrl = id => { const m = data.media.find(x => x.id === id); return m ? ou(m.kind === 'photo' ? m.blob : m.thumb) : ''; };
@@ -1320,6 +1328,18 @@ async function cardView(id) {
     }
   };
   drawChips();
+  $('#pcedit').onclick = () => { snap = JSON.stringify(pc); dirty = false; setMode(true); };
+  $('#pcdone').onclick = async () => { await commit(); panel = null; $('#pcpanel').hidden = true; drawChips(); setMode(false); toast('明信片已儲存'); };
+  $('#pccancel').onclick = () => {
+    if (!t.pc && !dirty) { location.hash = `trip/${id}`; return; }
+    const old = JSON.parse(snap);
+    Object.keys(pc).forEach(k => delete pc[k]); Object.assign(pc, old);
+    panel = null; $('#pcpanel').hidden = true;
+    view.querySelectorAll('[data-tpl]').forEach(x => x.classList.toggle('on', x.dataset.tpl === pc.tpl));
+    drawChips(); drawDays(); dirty = false;
+    if (t.pc) setMode(false);
+    clearTimeout(timer); gen();
+  };
   $('#psave').onclick = async () => {
     if (!blob) return;
     const file = new File([blob], `fengcai-postcard-${new Date().toISOString().slice(0, 10)}.jpg`, { type: 'image/jpeg' });

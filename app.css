@@ -939,3 +939,18 @@ button.kfuture{border:0;font:inherit;cursor:pointer}
 .tl-cap-h{color:#8A5A00}
 .tl-row:has(.tl-capcard) .tl-date b{color:#B07A00}
 [hidden]{display:none!important}
+
+/* v0.18.3：旅行的花改粉色；今天在旅行中＝粉花瓣＋黃花心；明信片看／編輯 */
+.cd.has-trip{color:#4B1528}
+.cd.has-trip.today{color:#412402}
+.cd.has-trip.today span::before{width:22px;height:22px;margin:-11px 0 0 -11px}
+.cd.has-trip.today .cd-fl-c{fill:#FAC775}
+.pcpage .pcmode-edit{display:none}
+.pcpage.pc-editing .pcmode-edit{display:flex}
+.pcpage.pc-editing p.pcmode-edit{display:block}
+.pcpage.pc-editing .pcmode-view{display:none}
+.pcpage:not(.pc-editing) .tplrow,.pcpage:not(.pc-editing) #pcday,.pcpage:not(.pc-editing) #pcchips,.pcpage:not(.pc-editing) #pcpanel,.pcpage:not(.pc-editing) #pedit{display:none!important}
+.pcpage:not(.pc-editing) .pc-tiles{display:none}
+.pcmode-edit,.pcmode-view{gap:8px;align-items:center}
+.pchead .pcmode-view{display:flex}
+.pcpage.pc-editing .pchead .pcmode-view{display:none}
