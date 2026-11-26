@@ -27,10 +27,12 @@ async function route(keepScroll = false) {
   freeUrls();
   if (curMap) { curMap.destroy(); curMap = null; }
   const [r, id] = location.hash.slice(1).split('/');
-  const tab = r === 'trip' || r === 'c' || r === 'trips' || r === 'card' || r === 'video' || r === 'hive' || r === 'capsule' ? 'trips' : r === 'settings' ? 'settings' : r === 'map' ? 'map' : 'home';
+  const dailyId = (id || '').startsWith('daily-');
+  const tab = r === 'daily' || (r === 'trip' && dailyId) ? 'daily' : r === 'trip' || r === 'c' || r === 'trips' || r === 'card' || r === 'video' || r === 'hive' || r === 'capsule' ? 'trips' : r === 'settings' ? 'settings' : r === 'map' ? 'map' : 'home';
   document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('on', a.dataset.t === tab));
   try {
     if (r === 'trips') await trips();
+    else if (r === 'daily') await dailyView();
     else if (r === 'trip') await trip(id);
     else if (r === 'c') await checkin(id);
     else if (r === 'settings') await settings();
@@ -74,7 +76,7 @@ function cardHTML({ c, m }) {
     ${aud.length ? `<span class="aud">${icon('mic')}${aud.length}</span>` : ''}
   </a>`;
 }
-const topbar = () => `<header class="top"><img src="./logo.svg" class="logo" alt=""><div><h1>蜂采</h1><p class="sub">飛到哪，甜到哪</p></div></header>`;
+const topbar = (gear = true) => `<header class="top"><img src="./logo.svg" class="logo" alt=""><div><h1>蜂采</h1><p class="sub">飛到哪，甜到哪</p></div>${gear ? `<a class="topgear" href="#settings" aria-label="設定">${icon('gear')}</a>` : ''}</header>`;
 
 // ---------- 孩子打卡：可以開或關（沒有孩子的人就看不到孩子相關的東西） ----------
 const kidOn = () => getSetting('kidMode') !== 'off';
@@ -441,7 +443,8 @@ async function trips() {
   const ts = await store.listTrips();
   const mode = getMode(), act = getActiveId();
   const all = await Promise.all(ts.map(async t => ({ t, cs: await store.listCheckins(t.id) })));
-  const nodes = all.filter(x => !(isDaily(x.t) && !x.cs.length))
+  // 旅行包分頁只放真正的旅行；日常在「日常」分頁
+  const nodes = all.filter(x => !isDaily(x.t))
     .map(x => ({ ...x, a: x.cs[0]?.ts ?? x.t.createdAt, b: x.cs[x.cs.length - 1]?.ts ?? x.t.createdAt }))
     .sort((p, q) => q.b - p.b);
   // 每一天有什麼：旅行（淡花）、日常（小點）
@@ -457,12 +460,7 @@ async function trips() {
   const curTrip = mode === 'trip' && nodes.find(n => n.t.id === act && !isDaily(n.t));
   // 時間軸：旅行包一項（放在出發那天）；日常每天一項；依月份分段，新的在上面
   const entries = [];
-  nodes.forEach(n => {
-    if (!isDaily(n.t)) { entries.push({ kind: 'trip', ts: n.cs.length ? n.a : n.t.createdAt, n }); return; }
-    const byDay = {};
-    n.cs.forEach(c => { const k = dayKey(c.ts); (byDay[k] = byDay[k] || []).push(c); });
-    Object.entries(byDay).forEach(([k, cs]) => entries.push({ kind: 'day', ts: cs[0].ts, k, cs, n }));
-  });
+  nodes.forEach(n => entries.push({ kind: 'trip', ts: n.cs.length ? n.a : n.t.createdAt, n }));
   const capsOpened = await openedCapsules();
   capsOpened.forEach(c => entries.push({ kind: 'cap', ts: c.openedAt, c }));
   entries.sort((p, q) => q.ts - p.ts);
@@ -471,18 +469,20 @@ async function trips() {
   const dailyOf = (y, m) => nodes.find(n => isDaily(n.t) && n.t.id === `daily-${y}-${String(m + 1).padStart(2, '0')}`);
   const tripCount = entries.filter(e => e.kind === 'trip' && e.n.cs.length).length;
   view.innerHTML = `
-    <div class="row between" style="margin-top:4px"><h1 class="h1" style="margin:0">我的旅行包</h1><a class="btn sm hivebtn" href="#hive" aria-label="時光膠囊"><svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M12 2.5l8 4.6v9.8l-8 4.6-8-4.6V7.1z" fill="var(--cap-wax)" stroke="var(--cap-rim)" stroke-width="1.6"/></svg>膠囊</a>${curTrip ? `<a class="tag on" href="#trip/${act}">旅行中</a>` : `<button class="btn main sm" id="new">${icon('plus')}開始旅行</button>`}</div>
+    <div class="row between" style="margin-top:4px"><h1 class="h1" style="margin:0">我的旅行包</h1><button class="topsearch" id="tsrch" aria-label="搜尋旅行包">${icon('search')}</button><a class="btn sm hivebtn" href="#hive" aria-label="時光膠囊"><svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M12 2.5l8 4.6v9.8l-8 4.6-8-4.6V7.1z" fill="var(--cap-wax)" stroke="var(--cap-rim)" stroke-width="1.6"/></svg>膠囊</a>${curTrip ? `<a class="tag on" href="#trip/${act}">旅行中</a>` : `<button class="btn main sm" id="new">${icon('plus')}開始旅行</button>`}</div>
+    <div class="srchbar" id="srchbar" hidden><span>${icon('search')}</span><input id="tq" type="search" placeholder="搜尋旅行名稱或地點，例如：雲南、廣州" autocomplete="off"><button class="linkbtn" id="tqx">取消</button></div>
+    <p class="muted sm" id="tqnone" hidden>找不到符合的旅行包</p>
     <section class="calbox">
       <div class="calhead"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="選擇年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></div>
       <div class="calgrid wk">${WKS.map(w => `<span>${w}</span>`).join('')}</div>
       <div class="calgrid" id="calgrid"></div>
-      <div class="callegend"><span><i class="lg-fl">${FLOWER_BG}</i>旅行</span><span><i class="lg-dot"></i>日常</span><span><i class="cd-cap lg"></i>膠囊</span><button class="linkbtn" id="caltoday">回到本月</button></div>
+      <div class="callegend"><span><i class="lg-fl">${FLOWER_BG}</i>旅行</span><span><i class="cd-cap lg"></i>膠囊</span><button class="linkbtn" id="caltoday">回到本月</button></div>
     </section>
     ${entries.length ? `<div class="tl-top"><h2 class="h2" style="margin:0">時間軸</h2>${tripCount ? `<button class="btn sm" id="expall">${icon('flower')}全部展開</button>` : ''}</div>
       ${months.map(mo => { const dn = dailyOf(mo.y, mo.m); return `<section class="tl-sec">
-        <div class="tl-sec-h"><h3>${mo.y} 年 ${mo.m + 1} 月</h3>${dn ? `<a class="tl-dl" href="#trip/${dn.t.id}">${mo.m + 1} 月日常 ›</a>` : ''}</div>
+        <div class="tl-sec-h"><h3>${mo.y} 年 ${mo.m + 1} 月</h3></div>
         <div class="tl-rows">${mo.items.map(e => entryHTML(e, curTrip)).join('')}</div></section>`; }).join('')}`
-      : '<p class="empty">還沒有紀錄。在首頁按「打卡這裡」，或先「開始旅行」。</p>'}`;
+      : '<p class="empty">還沒有旅行包。在打卡頁把開關滑到「旅行」，或按「開始旅行」。日常的打卡在「日常」分頁。</p>'}`;
 
   const drawCal = () => {
     const [y, m] = calYM, first = new Date(y, m, 1).getDay(), n = new Date(y, m + 1, 0).getDate(), today = dayKey(Date.now());
@@ -490,7 +490,7 @@ async function trips() {
     let h = '<span></span>'.repeat(first);
     for (let d = 1; d <= n; d++) {
       const k = `${y}-${m + 1}-${d}`, o = marks[k];
-      h += `<button class="cd${o?.trip ? ' has-trip' : ''}${o?.daily ? ' has-daily' : ''}${o?.cap ? ' has-cap' : ''}${k === today ? ' today' : ''}" data-dk="${k}" ${o ? '' : 'tabindex="-1"'}>${o?.trip ? FLOWER_BG : ''}<span>${d}</span>${o?.cap ? '<i class="cd-cap" aria-label="時光膠囊"></i>' : ''}</button>`;
+      h += `<button class="cd${o?.trip ? ' has-trip' : ''}${o?.cap ? ' has-cap' : ''}${k === today ? ' today' : ''}" data-dk="${k}" ${o ? '' : 'tabindex="-1"'}>${o?.trip ? FLOWER_BG : ''}<span>${d}</span>${o?.cap ? '<i class="cd-cap" aria-label="時光膠囊"></i>' : ''}</button>`;
     }
     $('#calgrid').innerHTML = h;
     $('#calgrid').querySelectorAll('.cd').forEach(b => b.onclick = () => goDay(b.dataset.dk));
@@ -540,6 +540,23 @@ async function trips() {
   view.querySelectorAll('.tnode.open .tn-pc').forEach(el => fillPostcard(el, el.dataset.pc));
   fillMemThumbs(view, capsOpened);
   view.querySelectorAll('.tl-capcard [data-cap]').forEach(b => b.onclick = () => viewCapsule(b.dataset.cap));
+  // 搜尋旅行包：名稱或去過的地點
+  const qOf = {};
+  nodes.forEach(n => { qOf[n.t.id] = (n.t.name + ' ' + n.cs.map(c => c.placeName).join(' ')).toLowerCase(); });
+  const doSearch = q => {
+    q = q.trim().toLowerCase();
+    view.querySelector('.calbox').hidden = !!q;
+    let any = false;
+    view.querySelectorAll('.tl-sec').forEach(sec => {
+      let vis = 0;
+      sec.querySelectorAll('.tl-row').forEach(row => { const nd = row.querySelector('.tnode'); const ok = !q || (nd && qOf[nd.dataset.node].includes(q)); row.hidden = !ok; if (ok) vis++; });
+      sec.hidden = !vis; if (vis) any = true;
+    });
+    $('#tqnone').hidden = !q || any;
+  };
+  $('#tsrch').onclick = () => { const bar = $('#srchbar'); bar.hidden = !bar.hidden; if (!bar.hidden) $('#tq').focus(); else { $('#tq').value = ''; doSearch(''); } };
+  $('#tq').oninput = e => doSearch(e.target.value);
+  $('#tqx').onclick = () => { $('#tq').value = ''; doSearch(''); $('#srchbar').hidden = true; };
   // 封面小圖：每包第一張照片
   for (const n of nodes) {
     const img = view.querySelector(`.tnode[data-node="${n.t.id}"] .tn-cover`);
@@ -549,6 +566,118 @@ async function trips() {
       if (m) { img.innerHTML = `<img src="${ou(m.thumb || m.blob)}" alt="">`; break; }
     }
   }
+}
+
+// ---------- 日常分頁：月曆＋搜尋；「日子」一天一天看、「地方」看常去哪裡 ----------
+let dailyYM = null, dailyOpenDay = null;
+const cleanName = n => (n || '').replace(/（模擬）/g, '');
+async function dailyView() {
+  const ts = (await store.listTrips()).filter(isDaily);
+  let cs = [];
+  for (const t of ts) cs = cs.concat(await store.listCheckins(t.id));
+  cs.sort((a, b) => a.ts - b.ts);
+  const vis = {};
+  for (const c of cs) vis[c.id] = (await store.listMedia(c.id)).filter(m => m.kind !== 'audio' && (m.thumb || m.kind === 'photo'));
+  // 一天一組
+  const days = [], byK = {};
+  cs.forEach(c => { const k = dayKey(c.ts); if (!byK[k]) { byK[k] = { k, ts: c.ts, cs: [], ph: [] }; days.push(byK[k]); } byK[k].cs.push(c); byK[k].ph.push(...vis[c.id]); });
+  days.reverse();
+  // 地方：同名合在一起
+  const places = {};
+  cs.forEach(c => { const n = cleanName(c.placeName); (places[n] = places[n] || { name: n, cs: [] }).cs.push(c); });
+  const mode = getSetting('dailyMode', 'days'), period = getSetting('dailyPeriod', 'month');
+  if (!dailyYM) { const d = new Date(); dailyYM = [d.getFullYear(), d.getMonth()]; }
+  const curDaily = ts.map(t => t.id).sort().pop();
+  view.innerHTML = `
+    <div class="row between" style="margin-top:4px"><h1 class="h1" style="margin:0">我的日常</h1><span class="row" style="margin:0;gap:8px">${cs.length && curDaily ? `<a class="btn sm" href="#map/${curDaily}">${icon('map')}地圖</a>` : ''}<button class="topsearch" id="dsrch" aria-label="搜尋地方">${icon('search')}</button></span></div>
+    <div class="srchbar" id="srchbar" hidden><span>${icon('search')}</span><input id="dq" type="search" placeholder="搜尋地方，例如：餐廳、火鍋、店名" autocomplete="off"><button class="linkbtn" id="dqx">取消</button></div>
+    <div id="dsres"></div>
+    <div id="dmain">
+    <section class="calbox">
+      <div class="calhead"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="選擇年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></div>
+      <div class="calgrid wk">${WKS.map(w => `<span>${w}</span>`).join('')}</div>
+      <div class="calgrid" id="calgrid"></div>
+      <div class="callegend"><span><i class="lg-dot"></i>有打卡</span><span><i class="lg-dot ph"></i>有拍照</span><button class="linkbtn" id="caltoday">回到本月</button></div>
+    </section>
+    <div id="dayopen"></div>
+    ${cs.length ? `<div class="tl-top"><div class="seg dseg" role="group" aria-label="怎麼看"><button data-dm="days" class="${mode === 'days' ? 'on' : ''}">日子</button><button data-dm="places" class="${mode === 'places' ? 'on' : ''}">地方</button></div></div>
+      <div id="dlist"></div>` : '<p class="empty">還沒有日常打卡。打卡頁的開關在「日常」時打卡，就會出現在這裡。</p>'}
+    </div>`;
+  const stopRow = c => `<a class="tn-stop" href="#c/${c.id}"><span class="dstop-dot"></span><span class="tn-tm">${fmtTime(c.ts)}</span><b>${esc(cleanName(c.placeName))}</b>${vis[c.id].length ? `<span class="dstop-ph">${icon('camera')}${vis[c.id].length}</span>` : ''}</a>`;
+  const thumbs = (list, n) => list.slice(0, n).map(m => `<img src="${ou(m.thumb || m.blob)}" alt="">`).join('');
+  const md2 = t => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()}`; };
+  const wk = t => `週${'日一二三四五六'[new Date(t).getDay()]}`;
+  // 「日子」：有照片的日子是大卡片，沒照片的一行就好
+  const drawDays = () => {
+    let h = '', lastM = '';
+    days.forEach(d => {
+      const dt = new Date(d.ts), mk = `${dt.getFullYear()} 年 ${dt.getMonth() + 1} 月`;
+      if (mk !== lastM) { h += `<h3 class="dmonth">${mk}</h3>`; lastM = mk; }
+      const names = d.cs.map(c => `<a href="#c/${c.id}">${esc(cleanName(c.placeName))}</a>`).join('、');
+      if (d.ph.length) {
+        const firstPh = d.cs.find(c => vis[c.id].length);
+        h += `<div class="dcard"><a class="dc-ph n${Math.min(3, d.ph.length)}" href="#c/${firstPh.id}">${thumbs(d.ph, 3)}${d.ph.length > 3 ? `<span class="dc-more">+${d.ph.length - 3}</span>` : ''}</a><div class="dc-b"><p class="dc-d">${md2(d.ts)} <span>${wk(d.ts)}</span></p><p class="dc-pl">${names}</p></div></div>`;
+      } else h += `<div class="dline"><span class="dl-d">${md2(d.ts)}<small>${wk(d.ts)}</small></span><span class="dl-pl">${names}</span></div>`;
+    });
+    $('#dlist').innerHTML = h;
+  };
+  // 「地方」：常去排行
+  const drawPlaces = () => {
+    const now = new Date(), start = period === 'month' ? new Date(now.getFullYear(), now.getMonth(), 1).getTime() : period === 'year' ? new Date(now.getFullYear(), 0, 1).getTime() : 0;
+    const list = Object.values(places).map(p => ({ ...p, n: p.cs.filter(c => c.ts >= start).length, first: p.cs[0].ts })).filter(p => p.n).sort((a, b) => b.n - a.n || b.first - a.first);
+    const max = list.length ? list[0].n : 1, newSince = start || Date.now() - 30 * 86400e3;
+    $('#dlist').innerHTML = `<div class="seg sm dper" role="group" aria-label="期間">${[['month', '這個月'], ['year', '今年'], ['all', '全部']].map(([k2, t]) => `<button data-pp="${k2}" class="${period === k2 ? 'on' : ''}">${t}</button>`).join('')}</div>
+      ${list.length ? `<div class="dplaces">${list.map(p => `<button class="dplace" data-pl="${esc(p.name)}"><span class="dp-n">${esc(p.name)}${p.first >= newSince ? '<em>新</em>' : ''}</span><span class="dp-bar"><i style="width:${Math.max(6, Math.round(p.n / max * 100))}%"></i></span><span class="dp-c">${p.n} 次</span></button>`).join('')}</div>` : '<p class="muted sm">這段時間還沒有日常打卡。</p>'}`;
+    view.querySelectorAll('[data-pp]').forEach(b => b.onclick = () => { setSetting('dailyPeriod', b.dataset.pp); rerender(); });
+    view.querySelectorAll('[data-pl]').forEach(b => b.onclick = () => placeSheet(b.dataset.pl));
+  };
+  const placeSheet = name => {
+    const p = places[name]; if (!p) return;
+    const list = [...p.cs].reverse(), ph = list.flatMap(c => vis[c.id]);
+    openSheet(`<h2 class="h2" style="margin-top:0">${esc(name)}</h2><p class="muted sm">去過 ${p.cs.length} 次・第一次是 ${fmtDate(p.cs[0].ts)}</p>
+      ${ph.length ? `<div class="dsh-ph">${thumbs(ph, 8)}</div>` : ''}
+      <div class="dsh-list">${list.map(c => `<a class="tn-stop" href="#c/${c.id}"><span class="dstop-dot"></span><span class="tn-tm">${fmtDate(c.ts).replace(/ 週.$/, '')} ${fmtTime(c.ts)}</span>${vis[c.id].length ? `<span class="dstop-ph">${icon('camera')}${vis[c.id].length}</span>` : ''}</a>`).join('')}</div>`);
+    sb.querySelectorAll('a').forEach(a => a.addEventListener('click', () => closeSheet()));
+  };
+  if (cs.length) { mode === 'places' ? drawPlaces() : drawDays(); }
+  view.querySelectorAll('[data-dm]').forEach(b => b.onclick = () => { setSetting('dailyMode', b.dataset.dm); rerender(); });
+  // 月曆
+  const drawCal = () => {
+    const [y, m] = dailyYM, first = new Date(y, m, 1).getDay(), n = new Date(y, m + 1, 0).getDate(), today = dayKey(Date.now());
+    $('#calym').innerHTML = `${y} 年 ${m + 1} 月${icon('back', 'dn')}`;
+    let h = '<span></span>'.repeat(first);
+    for (let d = 1; d <= n; d++) { const k = `${y}-${m + 1}-${d}`, o = byK[k]; h += `<button class="cd${o ? ' has-daily' : ''}${o && o.ph.length ? ' has-ph' : ''}${k === today ? ' today' : ''}${k === dailyOpenDay ? ' sel' : ''}" data-dk="${k}" ${o ? '' : 'tabindex="-1"'}><span>${d}</span></button>`; }
+    $('#calgrid').innerHTML = h;
+    $('#calgrid').querySelectorAll('.cd').forEach(b => b.onclick = () => openDay(b.dataset.dk));
+  };
+  const openDay = k => {
+    const o = byK[k];
+    if (!o) { toast('這天沒有日常打卡'); return; }
+    dailyOpenDay = dailyOpenDay === k ? null : k;
+    $('#dayopen').innerHTML = dailyOpenDay ? `<div class="dayopen"><p class="tn-dt">${fmtDate(o.ts)}</p>${o.cs.map(stopRow).join('')}</div>` : '';
+    drawCal();
+  };
+  const move = k => { let [y, m] = dailyYM; m += k; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; } dailyYM = [y, m]; drawCal(); };
+  view.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => move(+b.dataset.mv));
+  $('#caltoday').onclick = () => { const d = new Date(); dailyYM = [d.getFullYear(), d.getMonth()]; drawCal(); };
+  $('#calym').onclick = async () => { const keys = Object.keys(byK); const pick = await ymPicker(dailyYM, keys.map(k => +k.split('-')[0]), keys); if (pick) { dailyYM = pick; drawCal(); } };
+  let sx = null; const cb = view.querySelector('.calbox');
+  cb.addEventListener('touchstart', e => { sx = e.touches[0].clientX; }, { passive: true });
+  cb.addEventListener('touchend', e => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx; sx = null; if (Math.abs(dx) > 50) move(dx < 0 ? 1 : -1); });
+  drawCal();
+  if (dailyOpenDay && byK[dailyOpenDay]) { const k = dailyOpenDay; dailyOpenDay = null; openDay(k); }
+  // 搜尋地方
+  const doSearch = q => {
+    q = q.trim().toLowerCase();
+    $('#dmain').hidden = !!q;
+    if (!q) { $('#dsres').innerHTML = ''; return; }
+    const hit = Object.values(places).filter(p => p.name.toLowerCase().includes(q) || p.cs.some(c => (c.note || '').toLowerCase().includes(q))).sort((a, b) => b.cs[b.cs.length - 1].ts - a.cs[a.cs.length - 1].ts);
+    $('#dsres').innerHTML = hit.length ? `<div class="dplaces">${hit.map(p => `<button class="dplace" data-pl="${esc(p.name)}"><span class="dp-n">${esc(p.name)}</span><span class="dp-c">${p.cs.length} 次・最近 ${md2(p.cs[p.cs.length - 1].ts)}</span></button>`).join('')}</div>` : '<p class="muted sm">找不到符合的地方</p>';
+    $('#dsres').querySelectorAll('[data-pl]').forEach(b => b.onclick = () => placeSheet(b.dataset.pl));
+  };
+  $('#dsrch').onclick = () => { const bar = $('#srchbar'); bar.hidden = !bar.hidden; if (!bar.hidden) $('#dq').focus(); else { $('#dq').value = ''; doSearch(''); } };
+  $('#dq').oninput = e => doSearch(e.target.value);
+  $('#dqx').onclick = () => { $('#dq').value = ''; doSearch(''); $('#srchbar').hidden = true; };
 }
 
 function entryHTML(e, curTrip) {
@@ -709,12 +838,20 @@ async function mapView(id) {
     const cs = await store.listCheckins(t.id);
     const days = new Set(cs.map(c => dayKey(c.ts))).size;
     view.innerHTML = `<div class="row between"><h1 class="h1">採蜜地圖</h1><span class="muted sm">${cs.length} 個地點</span></div>
-      <div class="focuscard"><a class="btn sm" href="#map" id="backall" aria-label="回全部足跡">${icon('back')}全部</a><div><b>${esc(t.name)}</b><small>${isDaily(t) ? '日常' : `${days} 天 · ${cs.length} 站`}</small></div><button class="btn main sm" id="conn">${icon('flower')}連起來</button></div>
+      <div class="focuscard"><a class="btn sm" href="${isDaily(t) ? '#daily' : '#map'}" id="backall" aria-label="${isDaily(t) ? '回日常' : '回全部足跡'}">${icon('back')}${isDaily(t) ? '日常' : '全部'}</a><div><b>${esc(t.name)}</b><small>${isDaily(t) ? '日常' : `${days} 天 · ${cs.length} 站`}</small></div><button class="btn main sm" id="conn">${icon('flower')}連起來</button></div>
       <div class="dayseg" id="daytabs"></div>
       <div id="mapbox"></div>
       <div class="daylist" id="daylist"></div>
       ${mapLegend()}${keyNote}`;
-    await attachMap($('#mapbox'), cs, fitH(290), t.id, isDaily(t), { wantMe: true, tripPal: isDaily(t) ? null : { [t.id]: palOfTrip(t) } });
+    if (isDaily(t)) {
+      // 日常：不編號、不連線，用蜂蜜光暈看常去的地方
+      $('#conn').remove(); $('#daytabs').remove(); $('#daylist').remove();
+      curMap = await mountMap($('#mapbox'), cs, { style: mapStyle(), height: fitH(250), seed: t.id, day: null, noPills: true, wantMe: true, merge: true, cluster: true,
+        onPick: c => { if (c._n > 1) visitsSheet(c); else location.hash = `c/${c.id}`; } });
+      showMe();
+      return;
+    }
+    await attachMap($('#mapbox'), cs, fitH(290), t.id, false, { wantMe: true, tripPal: { [t.id]: palOfTrip(t) } });
     // 旅行一打開就沿著順序串起來
     const conn = $('#conn');
     if (!isDaily(t) && conn && !conn.disabled) setTimeout(() => { if ($('#conn') === conn) conn.click(); }, 500);
@@ -1383,7 +1520,7 @@ async function settings() {
   try { const e = await navigator.storage?.estimate?.(); if (e) usage = `已使用約 ${(e.usage / 1048576).toFixed(1)} MB`; } catch (e) {}
   let persisted = false;
   try { persisted = await navigator.storage?.persisted?.(); } catch (e) {}
-  view.innerHTML = `${topbar()}
+  view.innerHTML = `<a class="back" href="#">${icon('back')}回到打卡</a>${topbar(false)}
     <section class="sec">
       <h2 class="h2">試用</h2>
       <label class="switch"><span><b>模擬模式</b><br><span class="muted sm">不用出門，用雲南的示範地點試玩打卡流程</span></span><input type="checkbox" id="demo" ${getSetting('demo') === '1' ? 'checked' : ''}></label>

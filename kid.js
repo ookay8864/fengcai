@@ -357,7 +357,8 @@ async function capHome() {
 async function capNew() {
   await stopRec();
   const items = [];
-  let when = 12;
+  let when = 12, pickTs = null;
+  const openTs = () => (when === 'pick' && pickTs ? pickTs : addM(when === 'pick' ? 12 : when));
   const draw = () => {
     k.innerHTML = `<header class="ktop"><button class="kbtn ghost" id="home" style="min-height:46px;font-size:17px">${icon('back')}回去</button><span class="kname" style="text-align:right">新的膠囊</span></header>
       <p class="kbig" style="text-align:center">想對未來的自己說什麼？</p>
@@ -367,12 +368,13 @@ async function capNew() {
         <button class="kshot${items.some(x => x.kind === 'audio') ? ' full' : ''}" id="kcau" ${items.some(x => x.kind === 'audio') ? 'disabled' : ''}>${icon('mic', 'huge')}<span>錄一段話</span><small id="kcaut">${items.some(x => x.kind === 'audio') ? '錄好了' : `${KID_LIMITS.audioSec} 秒`}</small></button>
       </div>
       <p class="kbig" style="text-align:center;font-size:22px">什麼時候打開？</p>
-      <div class="kfeel">${[[1, '1 個月'], [6, '半年'], [12, '1 年'], [24, '2 年']].map(([m, t]) => `<button data-w="${m}" class="${when === m ? 'on' : ''}">${t}</button>`).join('')}</div>
-      <p class="ktip" style="text-align:center">${ymd(addM(when))}打開</p>
+      <div class="kfeel">${[[1, '1 個月'], [6, '半年'], [12, '1 年'], [24, '2 年']].map(([m, t]) => `<button data-w="${m}" class="${when === m ? 'on' : ''}">${t}</button>`).join('')}<label class="kdatebtn${when === 'pick' ? ' on' : ''}">${icon('edit')}自己選日期<input type="date" id="kdate" min="${isoD(Date.now() + DAYMS)}" max="${isoD(addM(120))}" value="${pickTs ? isoD(pickTs) : ''}"></label></div>
+      <p class="ktip" style="text-align:center">${ymd(openTs())}打開</p>
       <div class="krow"><button class="kbtn main" id="kseal">${icon('check')}封起來！</button></div>`;
     $('#home').onclick = async () => { await stopRec(); capNew.note = ''; capHome(); };
     $('#knote').oninput = e => { capNew.note = e.target.value; };
     k.querySelectorAll('[data-w]').forEach(b => b.onclick = () => { when = +b.dataset.w; draw(); });
+    $('#kdate').onchange = e => { const [y, m, dd] = (e.target.value || '').split('-').map(Number); if (!y) return; const t = new Date(y, m - 1, dd, 9).getTime(); if (t <= Date.now()) { toastKid('要選明天以後的日子喔'); return; } pickTs = t; when = 'pick'; draw(); };
     if ($('#kcph')) $('#kcph').onchange = async e => { const f = e.target.files[0]; if (!f) return; try { items.push({ id: uid(), kind: 'photo', blob: await compressImage(f), mime: 'image/jpeg' }); } catch (err) { toastKid('照片放不進去'); } draw(); };
     $('#kcau').onclick = async () => {
       if (curRec) { const blob = await stopRec(); if (blob) items.push({ id: uid(), kind: 'audio', blob, mime: blob.type }); draw(); return; }
@@ -384,7 +386,7 @@ async function capNew() {
       await stopRec();
       const note = (capNew.note || '').trim();
       if (!note && !items.length) { toastKid('先寫一句話，或放一張照片吧'); return; }
-      const cap = { id: uid(), createdAt: Date.now(), openAt: addM(when), to: 'self', toName: '', from: myName, note, media: items, secrecy: 'date', kid: true, kidId: me ? me.id : null };
+      const cap = { id: uid(), createdAt: Date.now(), openAt: openTs(), to: 'self', toName: '', from: myName, note, media: items, secrecy: 'date', kid: true, kidId: me ? me.id : null };
       await store.saveCapsule(cap);
       capNew.note = '';
       const ov = document.createElement('div'); ov.className = 'cap-anim seal'; ov.innerHTML = `<div class="ca-hex">${hexCell('sealed', 0.15)}</div><p>封起來了！</p><small>${ymd(cap.openAt)}再打開</small>`;
@@ -394,6 +396,7 @@ async function capNew() {
   };
   draw();
 }
+const isoD = t => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const addM = m => { const d = new Date(); d.setMonth(d.getMonth() + m); d.setHours(9, 0, 0, 0); return d.getTime(); };
 async function capOpen(c) {
   await stopRec();

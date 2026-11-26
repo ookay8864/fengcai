@@ -879,3 +879,51 @@ button.kfuture{border:0;font:inherit;cursor:pointer}
 .kcol{display:flex;flex-direction:column;gap:12px;width:100%;max-width:300px;margin-top:14px}
 .kbtn.danger{background:#E5484D;color:#fff;border-color:#E5484D}
 @media (prefers-reduced-motion:reduce){.krays,.krays.pop{animation:none}}
+
+/* v0.18：日常分頁、搜尋、設定齒輪 */
+.topgear{margin-left:auto;width:42px;height:42px;border-radius:50%;display:grid;place-items:center;color:var(--ink);background:var(--card);box-shadow:var(--shadow)}
+.topgear .ic{width:22px;height:22px}
+.topsearch{margin-left:auto;width:38px;height:38px;border-radius:50%;border:0;display:grid;place-items:center;color:var(--ink);background:var(--card);box-shadow:var(--shadow);padding:0;flex-shrink:0}
+.topsearch .ic{width:20px;height:20px}
+.srchbar{display:flex;align-items:center;gap:8px;margin:10px 0 4px;padding:6px 10px;border-radius:999px;background:var(--card);box-shadow:var(--shadow)}
+.srchbar>span .ic{width:18px;height:18px;color:var(--ink-soft)}
+.srchbar input{flex:1;border:0;background:transparent;font:500 16px var(--font);outline:none;min-width:0}
+.cd.has-ph::after{background:var(--honey-deep,#D98A00)!important;width:7px!important;height:7px!important}
+.cd.sel{outline:2px solid var(--honey);outline-offset:-2px;border-radius:10px}
+.lg-dot.ph{background:var(--honey-deep,#D98A00)}
+.dayopen{margin:8px 0 4px;padding:8px 12px;border-radius:var(--radius);background:var(--card);box-shadow:var(--shadow)}
+.dstop-dot{width:10px;height:10px;border-radius:50%;background:var(--glow-core,#F5B83A);flex-shrink:0;margin:0 6px}
+.dstop-ph{margin-left:auto;display:inline-flex;align-items:center;gap:3px;font-size:12px;color:var(--ink-soft)}
+.dstop-ph .ic{width:14px;height:14px}
+.dseg{margin:0}
+.dmonth{font-size:14px;color:var(--ink-soft);margin:16px 2px 8px;font-weight:700}
+.dcard{border-radius:var(--radius-lg);overflow:hidden;background:var(--card);box-shadow:var(--shadow);margin-bottom:10px}
+.dc-ph{display:grid;gap:2px;height:150px;position:relative}
+.dc-ph.n1{grid-template-columns:1fr}.dc-ph.n2{grid-template-columns:1fr 1fr}.dc-ph.n3{grid-template-columns:2fr 1fr;grid-template-rows:1fr 1fr}
+.dc-ph.n3 img:first-child{grid-row:1/3}
+.dc-ph img{width:100%;height:100%;object-fit:cover;display:block}
+.dc-more{position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.55);color:#fff;font:700 12px var(--font);padding:2px 8px;border-radius:999px}
+.dc-b{padding:10px 12px}
+.dc-d{margin:0;font:800 15px var(--font)}.dc-d span{font-weight:600;color:var(--ink-soft);font-size:13px}
+.dc-pl{margin:2px 0 0;font-size:14px;line-height:1.5}
+.dc-pl a,.dl-pl a{color:var(--ink);text-decoration:none;border-bottom:1px dashed var(--line,#D9CFB8)}
+.dline{display:flex;gap:10px;align-items:baseline;padding:8px 4px;border-bottom:1px solid var(--line,#EEE6D3);font-size:14px}
+.dl-d{width:52px;flex-shrink:0;font-weight:800;color:var(--ink-soft)}.dl-d small{display:block;font-weight:600;font-size:11.5px}
+.dl-pl{flex:1;line-height:1.5}
+.dper{margin:4px 0 10px}
+.dplaces{display:flex;flex-direction:column;gap:2px}
+.dplace{display:flex;align-items:center;gap:10px;padding:10px 6px;border:0;border-bottom:1px solid var(--line,#EEE6D3);background:transparent;font:inherit;color:var(--ink);text-align:left}
+.dp-n{width:42%;font-weight:700;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dp-n em{font-style:normal;font-size:11px;font-weight:800;margin-left:6px;padding:1px 6px;border-radius:6px;background:#E1F5EE;color:#085041}
+.dp-bar{flex:1;height:8px;border-radius:4px;background:rgba(0,0,0,.04)}
+.dp-bar i{display:block;height:100%;border-radius:4px;background:var(--honey)}
+.dp-c{flex-shrink:0;font-size:13px;color:var(--ink-soft);margin-left:auto}
+.dsh-ph{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:8px 0}
+.dsh-ph img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px}
+.dsh-list{display:flex;flex-direction:column}
+.kdatebtn{position:relative;display:inline-flex;align-items:center;gap:6px;font:800 17px var(--font);padding:9px 16px;border-radius:999px;border:2.5px solid var(--kc,var(--honey));background:#fff;color:var(--hive)}
+.kdatebtn .ic{width:18px;height:18px}
+.kdatebtn input{position:absolute;inset:0;opacity:0;width:100%}
+.kdatebtn.on{background:var(--kc,var(--honey));color:#fff}
+.cd.has-daily:not(.has-ph)::after{background:#E2C88C}
+.srchbar[hidden]{display:none}
