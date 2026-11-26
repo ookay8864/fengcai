@@ -1,6 +1,6 @@
 // 蜂采 大人頁面
 import { CONFIG, getSetting, setSetting } from './config.js';
-import { store, ensureActiveTrip, getActiveId, setActiveId, askPersist, isKid, isAdult, findMergeTarget, getMode, startTrip, resumeTrip, endTrip, isDaily, moveDaysToTrip } from './store.js';
+import { store, ensureActiveTrip, getActiveId, setActiveId, askPersist, isKid, isAdult, findMergeTarget, getMode, startTrip, resumeTrip, endTrip, isDaily, moveDaysToTrip, moveToDaily, dailyId } from './store.js';
 import { getPosition, peekPosition, nearby, searchPlaces, inMainland, badgeOf, BADGES, shortType, isDemo, demoOff, amapLink, testAMap } from './geo.js';
 import { compressImage, videoThumb, startRecorder, blobDims } from './media.js';
 import { mountMap, gardenSVG, dayInfo, defaultDay, markerSVG, markerNumSVG, whoText, isDailyC } from './map.js';
@@ -33,6 +33,7 @@ async function route(keepScroll = false) {
   try {
     if (r === 'trips') await trips();
     else if (r === 'daily') await dailyView();
+    else if (r === 'trip' && dailyId_(id)) { location.replace('#daily'); return; }
     else if (r === 'trip') await trip(id);
     else if (r === 'c') await checkin(id);
     else if (r === 'settings') await settings();
@@ -46,14 +47,18 @@ async function route(keepScroll = false) {
     console.error(e);
     view.innerHTML = `<p class="err">發生錯誤：${esc(e.message)}</p>`;
   }
-  if (!keepScroll) window.scrollTo(0, 0);
+  if (r === 'daily' && dailyScroll != null && !keepScroll) { const y = dailyScroll; dailyScroll = null; requestAnimationFrame(() => window.scrollTo(0, y)); }
+  else if (!keepScroll) window.scrollTo(0, 0);
+  lastR = r;
 }
+const dailyId_ = id => (id || '').startsWith('daily-');
+let lastR = null, dailyScroll = null;
 const rerender = () => route(true);
 // 時光膠囊用到的共用工具；打開蜂采時檢查有沒有到期的膠囊
 initCapsule({ view, ou, overlay: (h) => overlay(h), openSheet: (h) => openSheet(h), closeSheet: () => closeSheet(), rerender });
 setTimeout(() => checkDue().catch(e => console.warn(e)), 300);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDue().catch(() => {}); });
-window.addEventListener('hashchange', () => { document.querySelector('.snack')?.remove(); route(); });
+window.addEventListener('hashchange', () => { document.querySelector('.snack')?.remove(); if (lastR === 'daily') dailyScroll = window.scrollY; route(); });
 
 // ---------- 共用：打卡卡片 ----------
 async function withMedia(cs) { return Promise.all(cs.map(async c => ({ c, m: await store.listMedia(c.id) }))); }
@@ -469,7 +474,8 @@ async function trips() {
   const dailyOf = (y, m) => nodes.find(n => isDaily(n.t) && n.t.id === `daily-${y}-${String(m + 1).padStart(2, '0')}`);
   const tripCount = entries.filter(e => e.kind === 'trip' && e.n.cs.length).length;
   view.innerHTML = `
-    <div class="row between" style="margin-top:4px"><h1 class="h1" style="margin:0">我的旅行包</h1><button class="topsearch" id="tsrch" aria-label="搜尋旅行包">${icon('search')}</button><a class="btn sm hivebtn" href="#hive" aria-label="時光膠囊"><svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M12 2.5l8 4.6v9.8l-8 4.6-8-4.6V7.1z" fill="var(--cap-wax)" stroke="var(--cap-rim)" stroke-width="1.6"/></svg>膠囊</a>${curTrip ? `<a class="tag on" href="#trip/${act}">旅行中</a>` : `<button class="btn main sm" id="new">${icon('plus')}開始旅行</button>`}</div>
+    <div class="row between" style="margin-top:4px"><h1 class="h1" style="margin:0">我的旅行包</h1><span class="topright"><a class="btn sm hivebtn" href="#hive" aria-label="時光膠囊"><svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M12 2.5l8 4.6v9.8l-8 4.6-8-4.6V7.1z" fill="var(--cap-wax)" stroke="var(--cap-rim)" stroke-width="1.6"/></svg>膠囊</a><button class="topsearch" id="tsrch" aria-label="搜尋旅行包">${icon('search')}</button></span></div>
+    <div class="row" style="margin:6px 0 0">${curTrip ? `<a class="tag on" href="#trip/${act}">旅行中</a>` : `<button class="btn main sm" id="new">${icon('plus')}開始旅行</button>`}</div>
     <div class="srchbar" id="srchbar" hidden><span>${icon('search')}</span><input id="tq" type="search" placeholder="搜尋旅行名稱或地點，例如：雲南、廣州" autocomplete="off"><button class="linkbtn" id="tqx">取消</button></div>
     <p class="muted sm" id="tqnone" hidden>找不到符合的旅行包</p>
     <section class="calbox">
@@ -589,7 +595,7 @@ async function dailyView() {
   if (!dailyYM) { const d = new Date(); dailyYM = [d.getFullYear(), d.getMonth()]; }
   const curDaily = ts.map(t => t.id).sort().pop();
   view.innerHTML = `
-    <div class="row between" style="margin-top:4px"><h1 class="h1" style="margin:0">我的日常</h1><span class="row" style="margin:0;gap:8px">${cs.length && curDaily ? `<a class="btn sm" href="#map/${curDaily}">${icon('map')}地圖</a>` : ''}<button class="topsearch" id="dsrch" aria-label="搜尋地方">${icon('search')}</button></span></div>
+    <div class="row between" style="margin-top:4px"><h1 class="h1" style="margin:0">我的日常</h1><button class="topsearch" id="dsrch" aria-label="搜尋地方">${icon('search')}</button></div>
     <div class="srchbar" id="srchbar" hidden><span>${icon('search')}</span><input id="dq" type="search" placeholder="搜尋地方，例如：餐廳、火鍋、店名" autocomplete="off"><button class="linkbtn" id="dqx">取消</button></div>
     <div id="dsres"></div>
     <div id="dmain">
@@ -600,8 +606,9 @@ async function dailyView() {
       <div class="callegend"><span><i class="lg-dot"></i>有打卡</span><span><i class="lg-dot ph"></i>有拍照</span><button class="linkbtn" id="caltoday">回到本月</button></div>
     </section>
     <div id="dayopen"></div>
-    ${cs.length ? `<div class="tl-top"><div class="seg dseg" role="group" aria-label="怎麼看"><button data-dm="days" class="${mode === 'days' ? 'on' : ''}">日子</button><button data-dm="places" class="${mode === 'places' ? 'on' : ''}">地方</button></div></div>
-      <div id="dlist"></div>` : '<p class="empty">還沒有日常打卡。打卡頁的開關在「日常」時打卡，就會出現在這裡。</p>'}
+    ${cs.length ? `<div class="tl-top"><div class="seg dseg" role="group" aria-label="怎麼看"><button data-dm="days" class="${mode === 'days' ? 'on' : ''}">日子</button><button data-dm="places" class="${mode === 'places' ? 'on' : ''}">地方</button><button data-dm="map" class="${mode === 'map' ? 'on' : ''}">地圖</button></div></div>
+      <div id="dlist"></div>
+      <div class="row" style="margin-top:18px"><button class="linkbtn" id="dmv">${icon('trip')}把某幾天搬進旅行包</button></div>` : '<p class="empty">還沒有日常打卡。打卡頁的開關在「日常」時打卡，就會出現在這裡。</p>'}
     </div>`;
   const stopRow = c => `<a class="tn-stop" href="#c/${c.id}"><span class="dstop-dot"></span><span class="tn-tm">${fmtTime(c.ts)}</span><b>${esc(cleanName(c.placeName))}</b>${vis[c.id].length ? `<span class="dstop-ph">${icon('camera')}${vis[c.id].length}</span>` : ''}</a>`;
   const thumbs = (list, n) => list.slice(0, n).map(m => `<img src="${ou(m.thumb || m.blob)}" alt="">`).join('');
@@ -626,7 +633,7 @@ async function dailyView() {
     const now = new Date(), start = period === 'month' ? new Date(now.getFullYear(), now.getMonth(), 1).getTime() : period === 'year' ? new Date(now.getFullYear(), 0, 1).getTime() : 0;
     const list = Object.values(places).map(p => ({ ...p, n: p.cs.filter(c => c.ts >= start).length, first: p.cs[0].ts })).filter(p => p.n).sort((a, b) => b.n - a.n || b.first - a.first);
     const max = list.length ? list[0].n : 1, newSince = start || Date.now() - 30 * 86400e3;
-    $('#dlist').innerHTML = `<div class="seg sm dper" role="group" aria-label="期間">${[['month', '這個月'], ['year', '今年'], ['all', '全部']].map(([k2, t]) => `<button data-pp="${k2}" class="${period === k2 ? 'on' : ''}">${t}</button>`).join('')}</div>
+    $('#dlist').innerHTML = `${perSeg()}
       ${list.length ? `<div class="dplaces">${list.map(p => `<button class="dplace" data-pl="${esc(p.name)}"><span class="dp-n">${esc(p.name)}${p.first >= newSince ? '<em>新</em>' : ''}</span><span class="dp-bar"><i style="width:${Math.max(6, Math.round(p.n / max * 100))}%"></i></span><span class="dp-c">${p.n} 次</span></button>`).join('')}</div>` : '<p class="muted sm">這段時間還沒有日常打卡。</p>'}`;
     view.querySelectorAll('[data-pp]').forEach(b => b.onclick = () => { setSetting('dailyPeriod', b.dataset.pp); rerender(); });
     view.querySelectorAll('[data-pl]').forEach(b => b.onclick = () => placeSheet(b.dataset.pl));
@@ -639,8 +646,26 @@ async function dailyView() {
       <div class="dsh-list">${list.map(c => `<a class="tn-stop" href="#c/${c.id}"><span class="dstop-dot"></span><span class="tn-tm">${fmtDate(c.ts).replace(/ 週.$/, '')} ${fmtTime(c.ts)}</span>${vis[c.id].length ? `<span class="dstop-ph">${icon('camera')}${vis[c.id].length}</span>` : ''}</a>`).join('')}</div>`);
     sb.querySelectorAll('a').forEach(a => a.addEventListener('click', () => closeSheet()));
   };
-  if (cs.length) { mode === 'places' ? drawPlaces() : drawDays(); }
+  // 「地圖」：蜂蜜光暈，跟「地方」用同一個期間
+  const perSeg = () => `<div class="seg sm dper" role="group" aria-label="期間">${[['month', '這個月'], ['year', '今年'], ['all', '全部']].map(([k2, t]) => `<button data-pp="${k2}" class="${period === k2 ? 'on' : ''}">${t}</button>`).join('')}</div>`;
+  const drawMap = async () => {
+    const now = new Date(), start = period === 'month' ? new Date(now.getFullYear(), now.getMonth(), 1).getTime() : period === 'year' ? new Date(now.getFullYear(), 0, 1).getTime() : 0;
+    const pts = cs.filter(c => c.ts >= start && c.lat != null);
+    $('#dlist').innerHTML = `${perSeg()}<div id="mapbox"></div><div id="mapnote"></div><p class="muted sm" style="margin:8px 2px 0">越常去的地方越亮。拉近之後點中間的小點，可以看去過幾次。</p>`;
+    view.querySelectorAll('[data-pp]').forEach(b => b.onclick = () => { setSetting('dailyPeriod', b.dataset.pp); rerender(); });
+    if (!pts.length) { $('#mapbox').innerHTML = '<p class="muted sm">這段時間還沒有日常打卡。</p>'; return; }
+    curMap = await mountMap($('#mapbox'), pts, { style: mapStyle(), height: 380, seed: 'daily-all', day: null, noPills: true, wantMe: true, merge: true, cluster: true,
+      onPick: c => placeSheet(cleanName(c.placeName)) });
+  };
+  if (cs.length) { mode === 'places' ? drawPlaces() : mode === 'map' ? await drawMap() : drawDays(); }
   view.querySelectorAll('[data-dm]').forEach(b => b.onclick = () => { setSetting('dailyMode', b.dataset.dm); rerender(); });
+  if ($('#dmv')) $('#dmv').onclick = () => {
+    // 用月曆正在看的那個月
+    const [y, m] = dailyYM, did = dailyId(new Date(y, m, 1)), t = ts.find(x => x.id === did);
+    const ds = days.filter(d => d.cs[0].tripId === did).map(d => ({ k: d.k, ts: d.ts, items: d.cs.map(c => ({ c })) })).reverse();
+    if (!t || !ds.length) { toast(`${m + 1} 月沒有日常打卡；先用上面的月曆切到要搬的月份`); return; }
+    moveDaysDlg(t, ds);
+  };
   // 月曆
   const drawCal = () => {
     const [y, m] = dailyYM, first = new Date(y, m, 1).getDay(), n = new Date(y, m + 1, 0).getDate(), today = dayKey(Date.now());
@@ -1315,8 +1340,16 @@ async function trip(id) {
     ${mapLegend()}
     ${days.map((d, i) => { const th = (t.dayThemes || {})[d.k] ? getTheme(t.dayThemes[d.k]) : null; return `<h2 class="h2 day">${isDaily(t) ? '' : `<span class="dn">第 ${i + 1} 天</span>`}${fmtDate(d.ts)}<button class="tchip" data-day="${d.k}" aria-label="更改這天的花園主題">${th ? `${themeIcon(th, 22)}${esc(th.name)}` : '選花園主題'}</button></h2><div class="cards">${d.items.map(cardHTML).join('')}</div>`; }).join('') || '<p class="empty" style="margin-top:14px">這趟旅程還沒有打卡。</p>'}
     <div class="row"><a class="btn main" href="#video/${id}">${icon('play')}一鍵生成短片</a><a class="btn" href="#card/${id}">${icon('flower')}做足跡明信片</a></div>
-    <div class="row">${isDaily(t) ? (days.length ? `<button class="btn" id="mv">${icon('trip')}把幾天搬進旅行包</button>` : '') : getMode() === 'trip' && getActiveId() === id ? '<span class="tag on" style="align-self:center">旅行中</span>' : `<button class="btn" id="act">${icon('trip')}繼續這趟旅行</button>`}<button class="btn danger" id="del">${icon('trash')}刪除這個旅行包</button></div>`;
+    <div class="row">${isDaily(t) ? (days.length ? `<button class="btn" id="mv">${icon('trip')}把幾天搬進旅行包</button>` : '') : getMode() === 'trip' && getActiveId() === id ? '<span class="tag on" style="align-self:center">旅行中</span>' : `<button class="btn" id="act">${icon('trip')}繼續這趟旅行</button>`}<button class="btn danger" id="del">${icon('trash')}刪除這個旅行包</button></div>
+    ${!isDaily(t) && meta.length ? `<p class="muted sm" style="margin-top:14px">打錯到這個旅行包了嗎？</p><button class="btn sm" id="alldaily">${icon('flower')}這趟其實是日常，全部移到日常</button>` : ''}`;
   fillPostcard($('#trippc'), id);
+  if ($('#alldaily')) $('#alldaily').onclick = async () => {
+    if (!(await confirmDlg(`把「${t.name}」的 ${meta.length} 站全部移到日常？照片、聲音會一起移過去，這個旅行包會消失。`, '全部移到日常', '取消'))) return;
+    for (const x of meta) await moveToDaily(x.c);
+    await store.deleteTrip(id);
+    if (getActiveId() === id) { try { localStorage.removeItem('fc-active'); } catch (e) {} endTrip(); }
+    toast('已移到日常'); location.hash = 'daily';
+  };
   await attachMap($('#mapbox'), meta.map(x => x.c), 260, id, isDaily(t));
   view.querySelectorAll('[data-day]').forEach(b => b.onclick = async () => {
     const cur = (t.dayThemes || {})[b.dataset.day];
@@ -1392,10 +1425,11 @@ async function checkin(id) {
     </section>`).join('');
   const b = BADGES[badgeOf(c.placeType)];
   const pending = isKid(c) && !c.confirmed;
-  view.innerHTML = `<a class="back" href="#trip/${c.tripId}">${icon('back')}${esc(t?.name || '旅行包')}</a>
+  const inDaily = isDaily(t) || dailyId_(c.tripId);
+  view.innerHTML = `<a class="back" href="${inDaily ? '#daily' : `#trip/${c.tripId}`}">${icon('back')}${inDaily ? '日常' : esc(t?.name || '旅行包')}</a>
     <div class="detail-head"><div class="card-ic lg">${icon(b.icon)}</div><div><h1 class="h1">${esc(c.placeName)}</h1><p class="muted">${fmtDate(c.ts)} ${fmtTime(c.ts)}${c.acc ? ` · 誤差約 ${c.acc} 公尺` : ''}</p>${isKid(c) && isAdult(c) ? '<span class="tag kid">孩子＋大人一起打卡</span>' : ''}</div></div>
     ${pending ? `<div class="kidbox">${icon('honey')}<div><b>這是孩子蓋的章（${esc(b.name)}）</b><p>系統自動選了最近的地點，請確認是否正確。</p><div class="row"><button class="btn main sm" id="conf">${icon('check')}地點正確</button><button class="btn sm" id="ren">${icon('pin')}修改地點</button></div></div></div>` : ''}
-    <div class="row">${pending ? '' : `<button class="btn sm" id="ren">${icon('pin')}修改地點</button>`}${c.lat != null ? `<a class="btn sm" href="${amapLink(c.lat, c.lng, c.placeName)}" target="_blank" rel="noopener">${icon('map')}在高德地圖開啟</a>` : ''}</div>
+    <div class="row">${pending ? '' : `<button class="btn sm" id="ren">${icon('pin')}修改地點</button>`}${inDaily ? '' : `<button class="btn sm" id="todaily">${icon('flower')}移到日常</button>`}${c.lat != null ? `<a class="btn sm" href="${amapLink(c.lat, c.lng, c.placeName)}" target="_blank" rel="noopener">${icon('map')}在高德地圖開啟</a>` : ''}</div>
     <h2 class="h2">照片與影片 <small>${vis.length}/${MAX}</small></h2>
     <div class="grid">
       ${vis.map(x => `<div class="tile${x.star ? ' star' : ''}"><button class="tile-v" data-v="${x.id}" aria-label="查看">${x.thumb ? `<img src="${ou(x.thumb)}" alt="">` : `<span class="vph">${icon('play')}</span>`}${x.kind === 'video' ? `<span class="vbadge">${icon('play')}</span>` : ''}</button><button class="tile-s" data-s="${x.id}" aria-pressed="${x.star ? 'true' : 'false'}" aria-label="精選"><span class="star-badge">${icon('star')}</span></button>${x.focus ? `<i class="focus-dot" style="left:${(x.focus.x * 100).toFixed(1)}%;top:${(x.focus.y * 100).toFixed(1)}%"></i>` : ''}</div>`).join('')}
@@ -1428,6 +1462,13 @@ async function checkin(id) {
   view.querySelectorAll('[data-v]').forEach(btn => btn.onclick = () => viewer(vis.find(v => v.id === btn.dataset.v)));
   view.querySelectorAll('[data-d]').forEach(btn => btn.onclick = async () => { if (await confirmDlg('刪除這段聲音？', '刪除')) { await store.deleteMedia(btn.dataset.d); rerender(); } });
   view.querySelectorAll('[data-kv]').forEach(btn => btn.onclick = () => viewer(kidm.find(v => v.id === btn.dataset.kv)));
+  if ($('#todaily')) $('#todaily').onclick = async () => {
+    if (!(await confirmDlg(`把「${c.placeName}」移到日常？照片、聲音會一起移過去。`, '移到日常', '取消'))) return;
+    const from = c.tripId;
+    await moveToDaily(c);
+    toast('已移到日常');
+    location.hash = (await store.listCheckins(from)).length ? `trip/${from}` : 'daily';
+  };
   view.querySelectorAll('[data-kd]').forEach(btn => btn.onclick = async () => { if (await confirmDlg('刪除孩子拍的這一個？', '刪除')) { await store.deleteMedia(btn.dataset.kd); rerender(); } });
   const delCheckin = async () => {
     if (!(await confirmDlg(`確定刪除「${c.placeName}」這次打卡？照片、影片和聲音會一起刪除，無法復原。`, '確定刪除', '取消'))) return;

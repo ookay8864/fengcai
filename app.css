@@ -927,3 +927,14 @@ button.kfuture{border:0;font:inherit;cursor:pointer}
 .kdatebtn.on{background:var(--kc,var(--honey));color:#fff}
 .cd.has-daily:not(.has-ph)::after{background:#E2C88C}
 .srchbar[hidden]{display:none}
+
+/* v0.18.1：今天＝淡黃圓底；膠囊金色卡片；旅行包標題列 */
+.cd.today span{text-decoration:none;z-index:1}
+.cd.today span::before{content:"";position:absolute;left:50%;top:50%;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;background:#FAC775;z-index:-1}
+.cd.today{font-weight:800;color:#412402}
+.topright{display:flex;align-items:center;gap:8px;margin-left:auto}
+.topright .topsearch{margin-left:0}
+.tl-capcard{padding:10px 10px 12px;border-radius:var(--radius-lg);background:linear-gradient(135deg,#FFF3CC,#F6DC8E);border:1.5px solid #E2B84A;box-shadow:0 2px 10px rgba(201,150,30,.18)}
+.tl-capcard .mem{background:rgba(255,255,255,.75);box-shadow:none}
+.tl-cap-h{color:#8A5A00}
+.tl-row:has(.tl-capcard) .tl-date b{color:#B07A00}

@@ -169,6 +169,12 @@ export async function ensureDaily(d = new Date()) {
   }
   return t;
 }
+// 打錯到旅行包：把一站（或整包）移到那天所屬月份的日常
+export async function moveToDaily(c) {
+  const t = await ensureDaily(new Date(c.ts));
+  c.tripId = t.id; await store.saveCheckin(c);
+  return t;
+}
 // 打卡要放進哪一包
 export async function ensureActiveTrip() {
   if (getMode() === 'trip') {
