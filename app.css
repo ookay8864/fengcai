@@ -865,3 +865,17 @@ button.kfuture{border:0;font:inherit;cursor:pointer}
 .kshot.rec{background:#E5484D}
 .kletter{background:#fff;border-radius:22px;padding:18px;font:800 21px/1.6 var(--font);color:var(--hive);white-space:pre-wrap;max-width:340px}
 .kcapimg{max-width:300px;width:90%;border-radius:20px;border:5px solid #fff;box-shadow:0 6px 0 rgba(0,0,0,.12)}
+
+/* v0.17.1：蓋章後的放射光芒；孩子刪章 */
+.krays{position:absolute;left:50%;top:50%;width:300px;height:300px;margin:-150px;border-radius:50%;
+  background:repeating-conic-gradient(from 0deg,rgba(255,246,196,.95) 0deg 9deg,rgba(255,246,196,0) 9deg 22.5deg);
+  -webkit-mask:radial-gradient(circle,#000 30%,transparent 70%);mask:radial-gradient(circle,#000 30%,transparent 70%);
+  animation:krays 14s linear infinite}
+.krays::after{content:"";position:absolute;inset:26%;border-radius:50%;background:radial-gradient(circle,rgba(255,250,220,.95),rgba(255,236,150,0) 70%)}
+.krays.pop{animation:kraysin .7s ease-out both,krays 14s linear .7s infinite}
+@keyframes krays{to{transform:rotate(360deg)}}
+@keyframes kraysin{from{transform:scale(.2) rotate(-40deg);opacity:0}to{transform:scale(1) rotate(0);opacity:1}}
+.kres .kbud{z-index:1}
+.kcol{display:flex;flex-direction:column;gap:12px;width:100%;max-width:300px;margin-top:14px}
+.kbtn.danger{background:#E5484D;color:#fff;border-color:#E5484D}
+@media (prefers-reduced-motion:reduce){.krays,.krays.pop{animation:none}}

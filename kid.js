@@ -143,7 +143,7 @@ async function stampHead(c) {
   const r = reveal && reveal.cid === c.id ? reveal : null;
   const isNew = r ? r.isNew : true, pop = r && !r.shown;
   if (r) r.shown = true;
-  return `<div class="kres"><div class="petals">${Array.from({ length: 8 }, (_, i) => `<i style="--r:${i * 45}deg"></i>`).join('')}</div>
+  return `<div class="kres"><div class="krays${pop ? ' pop' : ''}" aria-hidden="true"></div>
       <div class="kbud${pop ? ' pop' : ''}">${idx != null ? buddySVG(theme, idx, 'big') : beeSVG('huge')}</div></div>
     <p class="kbudname">${idx != null ? (isNew ? `新夥伴：<b>${esc(buddyName(theme, idx))}</b>` : `又遇到 <b>${esc(buddyName(theme, idx))}</b> 了！`) : ''}</p>
     <p class="kbig">今天第 ${tn} 站</p>
@@ -223,10 +223,40 @@ async function book() {
       ${kids.map(c => { const bi = (c.buddy || {})[KK]; return `<button class="cell kcell" data-c="${c.id}">${bi != null ? buddySVG(theme, bi, 'cellbud') : icon('flower')}${esc(c.placeName.replace(/（模擬）/, ''))}<small>${fmtDate(c.kidTs || c.ts).replace(/ 週.$/, '')}・第 ${c._dn} 站</small></button>`; }).join('')}
       ${Array.from({ length: blanks }, () => '<div class="cell empty"></div>').join('')}
     </div>
-    ${kids.length ? '<p class="ktip sm" style="text-align:center">地點不對？點那個章就可以改</p>' : '<p class="ktip" style="text-align:center">還沒有章，快去蓋第一個！</p>'}`;
+    ${kids.length ? '<p class="ktip sm" style="text-align:center">地點不對或蓋錯了？點那個章就可以改或刪掉</p>' : '<p class="ktip" style="text-align:center">還沒有章，快去蓋第一個！</p>'}`;
   $('#home').onclick = idle;
   $('#dex').onclick = () => dex(book);
-  k.querySelectorAll('[data-c]').forEach(bt => bt.onclick = () => { const c = kids.find(x => x.id === bt.dataset.c); if (c) fixPlace(c, book); });
+  k.querySelectorAll('[data-c]').forEach(bt => bt.onclick = () => { const c = kids.find(x => x.id === bt.dataset.c); if (c) stampMenu(c); });
+}
+// 點一個章：改地點、刪掉
+function stampMenu(c) {
+  const bi = (c.buddy || {})[KK];
+  k.innerHTML = `<section class="kcenter">
+      <div class="kbud">${bi != null ? buddySVG(theme, bi, 'big') : beeSVG('huge')}</div>
+      <p class="kbig">${esc(c.placeName.replace(/（模擬）/, ''))}</p>
+      <p class="ktip">${fmtDate(c.kidTs || c.ts)}</p>
+      <div class="kcol"><button class="kbtn main" id="kfx">${icon('pin')}改地點</button><button class="kbtn danger" id="kdl">${icon('trash')}刪掉這個章</button><button class="kbtn ghost" id="kbk">不用了</button></div>
+    </section>`;
+  $('#kfx').onclick = () => fixPlace(c, book);
+  $('#kbk').onclick = book;
+  $('#kdl').onclick = () => {
+    k.innerHTML = `<section class="kcenter"><p class="kbig">真的要刪掉嗎？</p>
+        <p class="ktip">${esc(c.placeName.replace(/（模擬）/, ''))}的章${bi != null ? `，和那時遇到的「${esc(buddyName(theme, bi))}」` : ''}都會不見。<br>再蓋下一個章，夥伴還會回來。</p>
+        <div class="kcol"><button class="kbtn danger" id="kyes">${icon('trash')}刪掉</button><button class="kbtn ghost" id="kno">不要刪</button></div></section>`;
+    $('#kno').onclick = book;
+    $('#kyes').onclick = async () => { await removeMine(c); toastKid('刪掉了'); book(); };
+  };
+}
+// 只刪這個孩子自己的那一份；爸媽或其他孩子也在這站的，留著他們的
+async function removeMine(c) {
+  const others = (c.kidIds || []).filter(id => !me || id !== me.id);
+  const shared = c.adult || (me && others.length > 0);
+  if (!shared) { await store.deleteCheckin(c.id); return; }
+  for (const m of await store.listMedia(c.id)) if (m.by === 'kid' && (!me || m.kidId === me.id)) await store.deleteMedia(m.id);
+  const drop = o => { if (!o) return o; const x = { ...o }; delete x[KK]; return x; };
+  c.kidIds = others; c.buddy = drop(c.buddy); c.kidRate = drop(c.kidRate);
+  if (!others.length) { c.kid = false; delete c.kidTs; }
+  await store.saveCheckin(c);
 }
 
 // ---------- 地點不對：選最近的 5 個 ----------
