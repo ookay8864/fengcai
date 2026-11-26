@@ -5,11 +5,12 @@ import { getPosition, peekPosition, nearby, searchPlaces, inMainland, badgeOf, B
 import { compressImage, videoThumb, startRecorder, blobDims } from './media.js';
 import { mountMap, gardenSVG, dayInfo, defaultDay, markerSVG, markerNumSVG, whoText, isDailyC } from './map.js';
 import { allThemes, getTheme, themeIcon, itemIcon, ITEMS, GROUNDS, listCustom, saveCustom, deleteCustom } from './themes.js';
+import { getKids, kidById, newKid, upsertKid, removeKid, kidUrl, colorHex, KID_COLORS, FEELS } from './kids.js';
 import { collect, renderPostcard, DEFAULT_PC, PALETTES, TEMPLATES, SIZES, MAX_PC_PHOTOS } from './postcard.js';
 import { makeVideo, estimate, canMakeVideo, selectVisuals, layoutItems, stopDuration, voiceLen, isLand, PER_STOP } from './video.js';
 import { TRACKS } from './music.js';
 import { $, esc, toast, confirmDlg, inputDlg, fmtTime, fmtDate, dayKey, uid, icon } from './ui.js';
-import { loadBee } from './bee.js';
+import { loadBee, beeSVG } from './bee.js';
 import { initCapsule, hiveView, createView, checkDue, capsuleDays, memHTML, fillMemThumbs, viewCapsule, openedCapsules, anniversaryToday, dismissAnniversary, yearWord } from './capsule.js';
 
 const view = $('#view'), sheet = $('#sheet'), sb = $('#sheetbody');
@@ -345,7 +346,7 @@ function afterCheckin(c) {
 async function addFiles(cid, fileList) {
   const files = [...fileList];
   if (!files.length) return;
-  const have = (await store.listMedia(cid)).filter(x => x.kind !== 'audio').length;
+  const have = (await store.listMedia(cid)).filter(x => x.kind !== 'audio' && x.by !== 'kid').length;
   const room = MAX - have;
   if (room <= 0) { toast(`每個地點最多 ${MAX} 張照片或影片`); return; }
   const take = files.slice(0, room);
@@ -1240,7 +1241,18 @@ async function checkin(id) {
   if (!c) { location.hash = ''; return; }
   const t = await store.getTrip(c.tripId);
   const m = await store.listMedia(id);
-  const vis = m.filter(x => x.kind !== 'audio'), aud = m.filter(x => x.kind === 'audio');
+  // 孩子拍的另外算，不佔大人的 9 張
+  const mine = m.filter(x => x.by !== 'kid'), kidm = m.filter(x => x.by === 'kid');
+  const vis = mine.filter(x => x.kind !== 'audio'), aud = mine.filter(x => x.kind === 'audio');
+  const kidGroups = [];
+  kidm.forEach(x => { const key = x.kidId || ''; let g = kidGroups.find(y => y.key === key); if (!g) { const k = kidById(key); g = { key, kid: k, name: k ? k.name : '孩子', items: [] }; kidGroups.push(g); } g.items.push(x); });
+  (c.kidIds || []).forEach(id => { if (!kidGroups.find(g => g.key === id) && c.kidRate && c.kidRate[id]) { const k = kidById(id); kidGroups.push({ key: id, kid: k, name: k ? k.name : '孩子', items: [] }); } });
+  const rateHTML = r => (!r ? '' : `<span class="krate">${r.s ? `<b>${'★'.repeat(r.s)}<i>${'★'.repeat(3 - r.s)}</i></b>` : ''}${r.f && FEELS[r.f] ? `<em>${FEELS[r.f]}</em>` : ''}</span>`);
+  const kidHTML = kidGroups.map(g => `<section class="kidshot" style="--kc:${g.kid ? colorHex(g.kid) : 'var(--honey)'}">
+      <h2 class="h2"><span class="kidbee">${beeSVG('')}</span>${esc(g.name)}拍的 ${rateHTML((c.kidRate || {})[g.key])}</h2>
+      <div class="kidrow">${g.items.filter(x => x.kind !== 'audio').map(x => `<div class="ktile"><button class="tile-v" data-kv="${x.id}" aria-label="查看">${x.thumb ? `<img src="${ou(x.thumb)}" alt="">` : `<span class="vph">${icon('play')}</span>`}${x.kind === 'video' ? `<span class="vbadge">${icon('play')}</span>` : ''}</button><button class="kdel" data-kd="${x.id}" aria-label="刪除">${icon('trash')}</button></div>`).join('')}</div>
+      ${g.items.filter(x => x.kind === 'audio').map(x => `<div class="audrow">${x.q ? `<span class="kq">${esc(x.q)}</span>` : ''}<audio controls preload="metadata" src="${ou(x.blob)}"></audio><button class="icon-btn" data-kd="${x.id}" aria-label="刪除這段聲音">${icon('trash')}</button></div>`).join('')}
+    </section>`).join('');
   const b = BADGES[badgeOf(c.placeType)];
   const pending = isKid(c) && !c.confirmed;
   view.innerHTML = `<a class="back" href="#trip/${c.tripId}">${icon('back')}${esc(t?.name || '旅行包')}</a>
@@ -1253,8 +1265,9 @@ async function checkin(id) {
       ${vis.length < MAX ? `<label class="tile add">${icon('plus')}<span>加照片<br>或影片</span><input type="file" accept="image/*,video/*" multiple id="f"></label>` : ''}
     </div>
     <p class="muted sm">點右上角星星設為「精選」，之後生成短片會優先使用。</p>
+    ${kidHTML}
     <h2 class="h2">聲音</h2>
-    ${aud.map(x => `<div class="audrow"><span class="tag ${x.by === 'kid' ? 'kid' : ''}">${x.by === 'kid' ? '孩子' : '大人'}</span><audio controls preload="metadata" src="${ou(x.blob)}"></audio><button class="icon-btn" data-d="${x.id}" aria-label="刪除這段聲音">${icon('trash')}</button></div>`).join('') || '<p class="muted">還沒有聲音。</p>'}
+    ${aud.map(x => `<div class="audrow"><span class="tag">大人</span><audio controls preload="metadata" src="${ou(x.blob)}"></audio><button class="icon-btn" data-d="${x.id}" aria-label="刪除這段聲音">${icon('trash')}</button></div>`).join('') || '<p class="muted">還沒有聲音。</p>'}
     <button class="btn" id="rec" style="margin-top:8px">${icon('mic')}錄一段聲音</button>
     <h2 class="h2">備註</h2>
     <textarea id="note" class="inp" rows="3" placeholder="今天發生了什麼好玩的事？">${esc(c.note || '')}</textarea>
@@ -1277,6 +1290,8 @@ async function checkin(id) {
   });
   view.querySelectorAll('[data-v]').forEach(btn => btn.onclick = () => viewer(vis.find(v => v.id === btn.dataset.v)));
   view.querySelectorAll('[data-d]').forEach(btn => btn.onclick = async () => { if (await confirmDlg('刪除這段聲音？', '刪除')) { await store.deleteMedia(btn.dataset.d); rerender(); } });
+  view.querySelectorAll('[data-kv]').forEach(btn => btn.onclick = () => viewer(kidm.find(v => v.id === btn.dataset.kv)));
+  view.querySelectorAll('[data-kd]').forEach(btn => btn.onclick = async () => { if (await confirmDlg('刪除孩子拍的這一個？', '刪除')) { await store.deleteMedia(btn.dataset.kd); rerender(); } });
   const delCheckin = async () => {
     if (!(await confirmDlg(`確定刪除「${c.placeName}」這次打卡？照片、影片和聲音會一起刪除，無法復原。`, '確定刪除', '取消'))) return;
     await store.deleteCheckin(id); toast('已刪除'); location.hash = `trip/${c.tripId}`;
@@ -1332,10 +1347,35 @@ function viewer(x) {
   };
 }
 
+// ---------- 孩子：新增／編輯 ----------
+function kidEditor(k) {
+  const d = k ? { ...k } : { name: '', color: Object.keys(KID_COLORS)[getKids().length % 6], age: 'small' };
+  const draw = () => {
+    openSheet(`<h2 class="h2" style="margin-top:0">${k ? '編輯孩子' : '新增孩子'}</h2>
+      <label class="lbl" for="kn">小名</label><input id="kn" class="inp" maxlength="8" placeholder="例如：小寶、豆豆" value="${esc(d.name)}">
+      <p class="lbl">蜜蜂顏色</p><div class="kcolors">${Object.entries(KID_COLORS).map(([key, c]) => `<button data-kc="${key}" class="${d.color === key ? 'on' : ''}" style="--kc:${c.hex}" aria-label="${c.name}"><span class="kidbee">${beeSVG('')}</span><small>${c.name}</small></button>`).join('')}</div>
+      <p class="lbl">年紀</p><div class="seg" role="group" aria-label="小童或大童"><button data-ka="small" class="${d.age !== 'big' ? 'on' : ''}">小童</button><button data-ka="big" class="${d.age === 'big' ? 'on' : ''}">大童</button></div>
+      <p class="muted sm">${d.age === 'big' ? '大童：用自己的 iPhone，每一站可以拍 4 張照片、錄 1 段 10 秒影片、1 段 15 秒錄音。' : '小童：用爸媽的手機刷吊飾蓋章，可以錄一句話，不能拍照。'}</p>
+      <div class="row"><button class="btn main" id="ksave">${icon('check')}儲存</button>${k ? `<button class="btn danger sm" id="kdel">${icon('trash')}刪除</button>` : ''}<button class="btn sm" id="kx">取消</button></div>
+      ${k ? '<p class="muted sm">刪除只會拿掉這個孩子的設定；他蓋過的章和拍的照片都還在。</p>' : ''}`);
+    $('#kn').oninput = e => { d.name = e.target.value; };
+    sb.querySelectorAll('[data-kc]').forEach(b => b.onclick = () => { d.color = b.dataset.kc; draw(); });
+    sb.querySelectorAll('[data-ka]').forEach(b => b.onclick = () => { d.age = b.dataset.ka; draw(); });
+    $('#kx').onclick = closeSheet;
+    $('#ksave').onclick = async () => {
+      if (!d.name.trim()) { toast('請填小名'); return; }
+      if (k) upsertKid({ ...d, name: d.name.trim() }); else newKid(d.name, d.color, d.age);
+      await closeSheet(); toast('已儲存'); rerender();
+    };
+    if ($('#kdel')) $('#kdel').onclick = async () => { if (await confirmDlg(`刪除「${k.name}」的設定？他的章和照片都會留著。`, '刪除')) { removeKid(k.id); await closeSheet(); rerender(); } };
+  };
+  draw();
+}
+
 // ---------- 設定 ----------
 async function settings() {
   const base = location.href.split('#')[0].split('?')[0].replace(/[^/]*$/, '');
-  const adultUrl = `${base}index.html?tap=1`, kidUrl = `${base}kid.html?tap=1`;
+  const adultUrl = `${base}index.html?tap=1`, kidUrl0 = `${base}kid.html?tap=1`;
   let usage = '';
   try { const e = await navigator.storage?.estimate?.(); if (e) usage = `已使用約 ${(e.usage / 1048576).toFixed(1)} MB`; } catch (e) {}
   let persisted = false;
@@ -1348,6 +1388,10 @@ async function settings() {
     <section class="sec">
       <h2 class="h2">孩子</h2>
       <label class="switch"><span><b>孩子打卡</b><br><span class="muted sm">孩子有自己的打卡頁和吊飾；地圖可以分開看大人和孩子。關掉後只會隱藏，紀錄都還在。</span></span><input type="checkbox" id="kidm" ${kidOn() ? 'checked' : ''}></label>
+      ${kidOn() ? `<div class="kidlist">${getKids().map(k => `<div class="kidcard" style="--kc:${colorHex(k)}"><span class="kidbee">${beeSVG('')}</span><div class="card-main"><b>${esc(k.name)}</b><small>${k.age === 'big' ? '大童・用自己的手機，可以拍照、錄影、錄音' : '小童・用爸媽的手機蓋章'}</small></div><button class="btn sm" data-kedit="${esc(k.id)}">編輯</button></div>
+        <div class="copyrow kidurl"><code>${esc(kidUrl(base, k))}</code><button class="btn sm" data-copy="${esc(kidUrl(base, k))}">複製</button><a class="btn sm" href="${esc(kidUrl(base, k).replace('tap=1&', ''))}">打開</a></div>`).join('') || '<p class="muted sm">還沒有設定孩子。新增後，每個孩子會有自己的吊飾網址。</p>'}</div>
+      <div class="row"><button class="btn sm" id="kadd">${icon('plus')}新增孩子</button></div>
+      <p class="muted sm">把孩子的網址寫進他的吊飾。大童：用他自己的 iPhone 碰吊飾（或打開網址），之後再「加到主畫面」。</p>` : ''}
     </section>
     <section class="sec">
       <h2 class="h2">地圖樣式</h2>
@@ -1358,8 +1402,7 @@ async function settings() {
       <h2 class="h2">NFC 吊飾網址</h2>
       <p class="muted sm">用「NFC Tools」App 把下面的網址寫進吊飾。</p>
       <b>大人吊飾</b><div class="copyrow"><code>${esc(adultUrl)}</code><button class="btn sm" data-copy="${esc(adultUrl)}">複製</button></div>
-      ${kidOn() ? `<b style="display:block;margin-top:10px">孩子吊飾</b><div class="copyrow"><code>${esc(kidUrl)}</code><button class="btn sm" data-copy="${esc(kidUrl)}">複製</button></div>
-      <div class="row"><a class="btn sm" href="kid.html">打開兒童頁面看看</a></div>` : ''}
+      ${kidOn() && !getKids().length ? `<b style="display:block;margin-top:10px">孩子吊飾（還沒分是哪個孩子）</b><div class="copyrow"><code>${esc(kidUrl0)}</code><button class="btn sm" data-copy="${esc(kidUrl0)}">複製</button></div>` : kidOn() ? '<p class="muted sm" style="margin-top:8px">孩子的吊飾網址在上面「孩子」裡，每個孩子一條。</p>' : ''}
     </section>
     <section class="sec">
       <h2 class="h2">高德地圖（真實地圖、附近地點）</h2>
@@ -1398,6 +1441,8 @@ async function settings() {
   view.querySelectorAll('[data-ced]').forEach(b => b.onclick = async () => { const t = listCustom().find(x => x.id === b.dataset.ced); if (t && await customEditor(t)) rerender(); });
   view.querySelectorAll('[data-cdel]').forEach(b => b.onclick = async () => { if (await confirmDlg('刪除這個自訂主題？已經用這個主題的日子會變回預設草地。', '刪除')) { deleteCustom(b.dataset.cdel); rerender(); } });
   view.querySelectorAll('[data-style]').forEach(b => b.onclick = () => { setSetting('mapStyle', b.dataset.style); view.querySelectorAll('[data-style]').forEach(x => x.classList.toggle('on', x === b)); toast(`地圖樣式：${b.textContent}`); });
+  if ($('#kadd')) $('#kadd').onclick = () => kidEditor(null);
+  view.querySelectorAll('[data-kedit]').forEach(b => b.onclick = () => kidEditor(kidById(b.dataset.kedit)));
   $('#kidm').onchange = e => { setSetting('kidMode', e.target.checked ? 'on' : 'off'); toast(e.target.checked ? '已開啟孩子打卡' : '已關閉孩子打卡，紀錄都還在'); rerender(); };
   $('#demo').checked = isDemo();
   $('#demo').onchange = e => { if (e.target.checked) setSetting('demo', '1'); else demoOff(); toast(e.target.checked ? '已開啟模擬模式' : '已關閉模擬模式'); };

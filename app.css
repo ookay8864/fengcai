@@ -754,3 +754,65 @@ body.kid{background:var(--kid-bg) var(--pattern);color:var(--kid-ink)}
 .pc-edit{display:flex;align-items:center;gap:10px;margin-top:10px;text-align:left}
 .pc-edit p{margin:0;flex:1}
 .pc-edit .btn{flex-shrink:0}
+
+/* v0.16：孩子們（多個孩子、小童／大童） */
+.kcb .bee-b,.kidbee .bee-b{fill:var(--kc,var(--honey))}
+body.kid .bee-b{fill:var(--kc,var(--honey))}
+.kidbee{display:inline-flex;width:30px;height:30px;flex-shrink:0}
+.kidbee svg{width:100%;height:100%}
+.kidlist{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.kidcard{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius);background:var(--card);border-left:5px solid var(--kc)}
+.kidcard .card-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.kidcard small{color:var(--ink-soft);font-size:12.5px}
+.kidurl{margin:-2px 0 6px}
+.kidurl code{font-size:11px}
+.kcolors{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.kcolors button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 4px;border-radius:12px;border:2px solid transparent;background:var(--card);font:inherit}
+.kcolors button.on{border-color:var(--kc)}
+.kcolors .kidbee{width:38px;height:38px}
+.kcolors small{font-size:12px;color:var(--ink-soft)}
+.kidshot{margin-top:6px}
+.kidshot .h2{display:flex;align-items:center;gap:6px}
+.kidshot .h2 .kidbee{width:26px;height:26px}
+.krate{display:inline-flex;gap:6px;align-items:center;margin-left:4px;font-size:14px}
+.krate b{color:var(--kc);letter-spacing:1px}.krate b i{font-style:normal;opacity:.25}
+.krate em{font-style:normal;font-size:12.5px;padding:2px 8px;border-radius:999px;background:var(--card);border:1.5px solid var(--kc)}
+.kidrow{display:flex;gap:8px;overflow-x:auto;padding:4px 0 8px;scroll-snap-type:x mandatory}
+.ktile{position:relative;flex:0 0 31%;aspect-ratio:1;border-radius:12px;overflow:hidden;border:3px solid var(--kc);scroll-snap-align:start}
+.ktile .tile-v{width:100%;height:100%;padding:0;border:0;background:var(--card)}
+.ktile img{width:100%;height:100%;object-fit:cover;display:block}
+.kdel{position:absolute;right:4px;top:4px;width:30px;height:30px;border-radius:50%;border:0;background:rgba(0,0,0,.5);color:#fff;display:grid;place-items:center;padding:0}
+.kdel .ic{width:16px;height:16px}
+.kq{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:4px}
+/* 孩子頁：大童 */
+.kcenter.big{gap:6px}
+.kres.sm{transform:scale(.72);margin:-18px 0 -22px}
+.kstars{display:flex;gap:10px;margin:6px 0 2px}
+.kstars button{width:56px;height:56px;border-radius:50%;border:3px solid var(--kc,var(--honey));background:#fff;display:grid;place-items:center;padding:0}
+.kstars button .ic{width:30px;height:30px;color:#E8DFC8}
+.kstars button.on{background:var(--kc,var(--honey))}.kstars button.on .ic{color:#fff}
+.kfeel{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.kfeel button{font:800 17px var(--font);padding:9px 16px;border-radius:999px;border:2.5px solid var(--kc,var(--honey));background:#fff;color:var(--hive)}
+.kfeel button.on{background:var(--kc,var(--honey));color:#fff}
+.kshoot{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:100%;margin:10px 0 4px}
+.kshot{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;padding:14px 4px 10px;border-radius:20px;border:0;background:var(--kc,var(--honey));color:#fff;font:800 18px var(--font);box-shadow:0 4px 0 rgba(0,0,0,.15)}
+.kshot .ic.huge{width:40px;height:40px}
+.kshot small{font-size:12.5px;font-weight:700;opacity:.95}
+.kshot input{position:absolute;inset:0;opacity:0}
+.kshot.full{background:#E4E1DA;color:#8B867B;box-shadow:none}
+.kthumbs{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;min-height:0}
+.kthumbs img{width:54px;height:54px;object-fit:cover;border-radius:10px;border:2px solid var(--kc,var(--honey))}
+.kbig.kq{max-width:320px;text-align:center}
+.kstats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:6px 0 12px}
+.kstats span{background:#fff;border-radius:16px;padding:10px;text-align:center;font:700 14px var(--font);color:var(--ink-soft)}
+.kstats b{display:block;font:900 28px var(--font);color:var(--kc,var(--honey-deep))}
+.kcam{position:fixed;inset:0;z-index:80;background:#000;display:flex;flex-direction:column}
+.kcam video{flex:1;width:100%;object-fit:cover}
+.kcam-time{position:absolute;top:calc(env(safe-area-inset-top) + 16px);left:50%;transform:translateX(-50%);font:900 34px var(--font);color:#fff;background:rgba(0,0,0,.35);padding:2px 18px;border-radius:999px}
+.kcam.on .kcam-time{background:#E5484D}
+.kcam-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:16px 20px calc(env(safe-area-inset-bottom) + 18px);background:#000}
+.kcam-bar .kbtn{color:#fff;min-height:46px}
+.kcam-hint{color:#fff;font:700 14px var(--font);width:96px;text-align:right}
+.kcam-rec{width:78px;height:78px;border-radius:50%;border:5px solid #fff;background:transparent;display:grid;place-items:center;padding:0}
+.kcam-rec i{width:58px;height:58px;border-radius:50%;background:#E5484D;transition:all .2s}
+.kcam.on .kcam-rec i{width:30px;height:30px;border-radius:8px}

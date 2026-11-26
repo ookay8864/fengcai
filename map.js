@@ -11,6 +11,7 @@ import { esc, dayKey } from './ui.js';
 import { ITEMS } from './themes.js';
 import { isKid, isAdult } from './store.js';
 import { BEE } from './bee.js';
+import { beeColorOf } from './kids.js';
 
 const f1 = n => (Math.round(n * 10) / 10).toString();
 const shortName = s => { const t = String(s || '').replace(/（模擬）/g, ''); return t.length > 8 ? t.slice(0, 7) + '…' : t; };
@@ -93,6 +94,8 @@ function flowerShape(x, y, r) {
   return `${petals}<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(r * .5)}" class="mk-center"/><circle cx="${f1(x - r * .15)}" cy="${f1(y - r * .15)}" r="${f1(r * .14)}" class="mk-hi"/>`;
 }
 // photo：照片網址（data:），放進花心或蜜蜂的圓圈裡
+// 孩子的蜜蜂用他自己的顏色
+const kb = c => { const col = beeColorOf(c); return col ? `<g class="kcb" style="--kc:${col}">${BEE}</g>` : BEE; };
 export function markerSVG(x, y, c, num, s = 1, cls = '', photo = null, numStyle = 'badge') {
   const kid = isKid(c), adult = isAdult(c);
   let g = '';
@@ -101,7 +104,7 @@ export function markerSVG(x, y, c, num, s = 1, cls = '', photo = null, numStyle 
     if (adult) g += flowerShape(x, y, 15 * s).replace(/class="mk-center"/, 'class="mk-photo-ring"').replace(/<circle[^>]*class="mk-hi"\/>/, '');
     else g += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(pr + 2.6 * s)}" class="mk-kidring"/>`;
     g += `<clipPath id="${id}"><circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(pr)}"/></clipPath><image href="${photo}" x="${f1(x - pr)}" y="${f1(y - pr)}" width="${f1(pr * 2)}" height="${f1(pr * 2)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${id})"/><circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(pr)}" class="mk-photo-edge"/>`;
-    if (kid) g += `<g transform="translate(${f1(x + 11 * s)} ${f1(y - 11 * s)}) scale(${f1(.62 * s)})">${BEE}</g>`;
+    if (kid) g += `<g transform="translate(${f1(x + 11 * s)} ${f1(y - 11 * s)}) scale(${f1(.62 * s)})">${kb(c)}</g>`;
     return `<g class="mk ${cls}" style="transform-origin:${f1(x)}px ${f1(y)}px">${g}</g>`;
   }
   if (numStyle === 'center' && num != null) {
@@ -109,9 +112,9 @@ export function markerSVG(x, y, c, num, s = 1, cls = '', photo = null, numStyle 
     if (adult) {
       g += flowerShape(x, y, 14 * s).replace(/<circle[^>]*class="mk-hi"\/>/, '').replace(/r="([\d.]+)" class="mk-center"/, `r="${f1(7.6 * s)}" class="mk-center-num"`);
       g += `<text x="${f1(x)}" y="${f1(y)}" dy=".36em" class="mk-num" style="font-size:${f1((String(num).length > 1 ? 8.4 : 10) * s)}px">${num}</text>`;
-      if (kid) g += `<g transform="translate(${f1(x + 12 * s)} ${f1(y - 12 * s)}) scale(${f1(.62 * s)})">${BEE}</g>`;
+      if (kid) g += `<g transform="translate(${f1(x + 12 * s)} ${f1(y - 12 * s)}) scale(${f1(.62 * s)})">${kb(c)}</g>`;
     } else {
-      g += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(14 * s)}" class="mk-kidbg"/><g transform="translate(${f1(x)} ${f1(y + 2 * s)}) scale(${f1(1.05 * s)})">${BEE}</g>`;
+      g += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(14 * s)}" class="mk-kidbg"/><g transform="translate(${f1(x)} ${f1(y + 2 * s)}) scale(${f1(1.05 * s)})">${kb(c)}</g>`;
       g += `<circle cx="${f1(x + 11 * s)}" cy="${f1(y + 11 * s)}" r="${f1(7.2 * s)}" class="mk-badge"/><text x="${f1(x + 11 * s)}" y="${f1(y + 11 * s)}" dy=".36em" class="mk-num" style="font-size:${f1(8.4 * s)}px">${num}</text>`;
     }
     return `<g class="mk ${cls}" style="transform-origin:${f1(x)}px ${f1(y)}px">${g}</g>`;
@@ -125,8 +128,8 @@ export function markerSVG(x, y, c, num, s = 1, cls = '', photo = null, numStyle 
     if (n >= 20) g += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(22 * s)}" class="mk-halo"/>`;
   }
   if (adult) g += flowerShape(x, y, 12 * s);
-  if (kid && !adult) g += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(14 * s)}" class="mk-kidbg"/><g transform="translate(${f1(x)} ${f1(y + 2 * s)}) scale(${f1(1.05 * s)})">${BEE}</g>`;
-  if (kid && adult) g += `<g transform="translate(${f1(x + 3 * s)} ${f1(y - 6 * s)}) scale(${f1(.8 * s)})">${BEE}</g>`;
+  if (kid && !adult) g += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(14 * s)}" class="mk-kidbg"/><g transform="translate(${f1(x)} ${f1(y + 2 * s)}) scale(${f1(1.05 * s)})">${kb(c)}</g>`;
+  if (kid && adult) g += `<g transform="translate(${f1(x + 3 * s)} ${f1(y - 6 * s)}) scale(${f1(.8 * s)})">${kb(c)}</g>`;
   if (num != null) g += `<circle cx="${f1(x + 11 * s)}" cy="${f1(y + 11 * s)}" r="${f1(6.8 * s)}" class="mk-badge"/><text x="${f1(x + 11 * s)}" y="${f1(y + 11 * s)}" dy=".36em" class="mk-num" style="font-size:${f1(8.4 * s)}px">${num}</text>`;
   return `<g class="mk ${cls}" style="transform-origin:${f1(x)}px ${f1(y)}px">${g}</g>`;
 }
