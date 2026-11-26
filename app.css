@@ -816,3 +816,52 @@ body.kid .bee-b{fill:var(--kc,var(--honey))}
 .kcam-rec{width:78px;height:78px;border-radius:50%;border:5px solid #fff;background:transparent;display:grid;place-items:center;padding:0}
 .kcam-rec i{width:58px;height:58px;border-radius:50%;background:#E5484D;transition:all .2s}
 .kcam.on .kcam-rec i{width:30px;height:30px;border-radius:8px}
+
+/* v0.17：夥伴、方塊世界、孩子的時光膠囊、地點修改 */
+.mk-shadow{fill:rgba(43,27,10,.22)}
+.buddy{display:block;width:100%;height:100%}
+.kbud{position:relative;width:150px;height:150px;margin:0 auto;padding:14px;background:#fff;border-radius:32px;box-shadow:0 6px 0 rgba(0,0,0,.12)}
+.kbud .buddy.big{width:100%;height:100%}
+.kbud.pop{animation:budpop .8s cubic-bezier(.2,1.4,.4,1) both}
+@keyframes budpop{0%{transform:scale(.2) rotate(-12deg);opacity:0}70%{transform:scale(1.12) rotate(3deg);opacity:1}100%{transform:scale(1)}}
+.kbudname{margin:4px 0 0;font:700 17px var(--font);color:var(--hive)}
+.kbudname b{color:var(--kc,var(--honey-deep));font-weight:900}
+.khead.sm .kres{transform:scale(.8);margin:-12px 0 -16px}
+.khead{display:flex;flex-direction:column;align-items:center;gap:4px}
+.klink{border:0;background:transparent;font:700 15px var(--font);color:var(--hive);text-decoration:underline;text-underline-offset:3px;padding:4px 10px;opacity:.75}
+.kbtn-ic{width:22px;height:22px;display:inline-block;vertical-align:-4px;margin-right:4px}
+.kbook .kbtn-ic{width:20px;height:20px}
+.kcell{border:0;font:inherit;cursor:pointer}
+.kcell .cellbud{width:44px;height:44px;margin:0 auto 2px}
+.kplaces{display:flex;flex-direction:column;gap:10px;width:100%;margin:12px 0}
+.kpl{display:flex;align-items:center;gap:10px;padding:16px;border-radius:20px;border:0;background:#fff;font:800 19px var(--font);color:var(--hive);text-align:left;box-shadow:0 4px 0 rgba(0,0,0,.1)}
+.kpl span{flex:1}.kpl small{font:700 13px var(--font);color:var(--ink-soft)}
+.kpl .ic{width:26px;height:26px;color:var(--kc,var(--honey-deep))}
+.kdex{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+.kdx{background:#fff;border-radius:18px;padding:10px 6px 8px;text-align:center}
+.kdx .buddy{width:72px;height:72px;margin:0 auto}
+.kdx span{display:block;font:800 14px var(--font);color:var(--hive);margin-top:4px}
+.kdx.lock{background:rgba(255,255,255,.55)}.kdx.lock span{color:#A79F8C}
+.bworld{display:grid;grid-template-columns:repeat(3,1fr);gap:12px 10px;margin:14px 0;padding:16px 12px;border-radius:24px;background:#8FD3F5}
+.btile{position:relative;display:flex;flex-direction:column;align-items:center;cursor:pointer}
+.btile .bbud{width:62px;height:62px;margin-bottom:-6px;z-index:1}
+.btile i{display:block;width:74px;height:52px;background:linear-gradient(#6CC24A 0 34%,#4E9B32 34% 42%,#9A6A3A 42% 100%);box-shadow:inset 0 0 0 3px rgba(0,0,0,.18);image-rendering:pixelated}
+.btile small{margin-top:4px;font:800 12px var(--font);color:#1F3B52;max-width:84px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.btile.fog .bbud{display:none}
+.btile.fog i{background:rgba(255,255,255,.7);box-shadow:inset 0 0 0 3px rgba(255,255,255,.9);margin-top:56px;border-radius:14px}
+.btile.new .bbud{animation:budpop .8s cubic-bezier(.2,1.4,.4,1) both}
+.kdue{display:flex;align-items:center;gap:10px;margin:10px auto;padding:10px 18px;border-radius:999px;border:0;background:#fff;font:900 17px var(--font);color:var(--hive);box-shadow:0 4px 0 rgba(0,0,0,.12);animation:bob 1.6s ease-in-out infinite}
+.kdue-hx{width:34px;display:block}
+button.kfuture{border:0;font:inherit;cursor:pointer}
+.khive{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:12px}
+.khx{display:flex;flex-direction:column;align-items:center;gap:4px;border:0;background:transparent;font:800 14px var(--font);color:var(--hive);padding:0}
+.khx span{display:block;width:92px}
+.khx.due span{animation:capglow 1.4s ease-in-out infinite}
+.kopen{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.kopn{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:18px;border:0;background:#fff;font:800 16px var(--font);color:var(--hive);text-align:left}
+.kopn span{flex:1}.kopn small{font:600 13px var(--font);color:var(--ink-soft)}
+.knote{width:100%;min-height:120px;border-radius:20px;border:3px solid var(--kc,var(--honey-deep));padding:14px;font:700 18px/1.5 var(--font);background:#fff;resize:none;box-sizing:border-box}
+.kshoot.two{grid-template-columns:repeat(2,1fr)}
+.kshot.rec{background:#E5484D}
+.kletter{background:#fff;border-radius:22px;padding:18px;font:800 21px/1.6 var(--font);color:var(--hive);white-space:pre-wrap;max-width:340px}
+.kcapimg{max-width:300px;width:90%;border-radius:20px;border:5px solid #fff;box-shadow:0 6px 0 rgba(0,0,0,.12)}

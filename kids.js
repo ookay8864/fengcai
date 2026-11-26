@@ -31,7 +31,7 @@ export function upsertKid(k) {
   saveKids(list);
   return k;
 }
-export function newKid(name, color = 'honey', age = 'small') { return upsertKid({ id: uid(), name: name.trim() || '小寶', color, age }); }
+export function newKid(name, color = 'honey', age = 'small', theme = 'garden') { return upsertKid({ id: uid(), name: name.trim() || '小寶', color, age, theme }); }
 export function removeKid(id) { saveKids(read().filter(k => k.id !== id)); }
 export const colorHex = k => (KID_COLORS[k && k.color] || KID_COLORS.honey).hex;
 
@@ -47,7 +47,7 @@ export const isKidOf = (c, kid) => !!(c && (c.kid || c.by === 'kid')) && (!kid |
 
 // 吊飾網址
 export function kidUrl(base, k) {
-  const q = new URLSearchParams({ tap: '1', k: k.id, n: k.name, c: k.color, a: k.age });
+  const q = new URLSearchParams({ tap: '1', k: k.id, n: k.name, c: k.color, a: k.age, t: k.theme || 'garden' });
   return `${base}kid.html?${q}`;
 }
 // 孩子頁打開時：從網址認出是誰；網址沒帶就用上次的孩子（舊吊飾＝不分是誰）
@@ -55,7 +55,7 @@ export function kidFromUrl() {
   const q = new URLSearchParams(location.search);
   const id = q.get('k');
   if (id) {
-    const k = { id, name: q.get('n') || '小寶', color: KID_COLORS[q.get('c')] ? q.get('c') : 'honey', age: q.get('a') === 'big' ? 'big' : 'small' };
+    const k = { id, name: q.get('n') || '小寶', color: KID_COLORS[q.get('c')] ? q.get('c') : 'honey', age: q.get('a') === 'big' ? 'big' : 'small', theme: q.get('t') === 'block' ? 'block' : 'garden' };
     const old = kidById(id);
     // 爸媽手機上已經有這個孩子：以手機上的設定為準（可能改過名字）
     const me = old || upsertKid(k);

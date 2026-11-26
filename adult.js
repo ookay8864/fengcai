@@ -1349,11 +1349,13 @@ function viewer(x) {
 
 // ---------- 孩子：新增／編輯 ----------
 function kidEditor(k) {
-  const d = k ? { ...k } : { name: '', color: Object.keys(KID_COLORS)[getKids().length % 6], age: 'small' };
+  const d = k ? { theme: 'garden', ...k } : { name: '', color: Object.keys(KID_COLORS)[getKids().length % 6], age: 'small', theme: 'garden' };
   const draw = () => {
     openSheet(`<h2 class="h2" style="margin-top:0">${k ? '編輯孩子' : '新增孩子'}</h2>
       <label class="lbl" for="kn">小名</label><input id="kn" class="inp" maxlength="8" placeholder="例如：小寶、豆豆" value="${esc(d.name)}">
       <p class="lbl">蜜蜂顏色</p><div class="kcolors">${Object.entries(KID_COLORS).map(([key, c]) => `<button data-kc="${key}" class="${d.color === key ? 'on' : ''}" style="--kc:${c.hex}" aria-label="${c.name}"><span class="kidbee">${beeSVG('')}</span><small>${c.name}</small></button>`).join('')}</div>
+      <p class="lbl">花園主題</p><div class="seg" role="group" aria-label="花園主題"><button data-kt="garden" class="${d.theme !== 'block' ? 'on' : ''}">花園小夥伴</button><button data-kt="block" class="${d.theme === 'block' ? 'on' : ''}">方塊冒險</button></div>
+      <p class="muted sm">每蓋一個章，就會遇到一個新夥伴。${d.theme === 'block' ? '方塊冒險：像素方塊世界和方塊夥伴。' : '花園小夥伴：原本的花園和小昆蟲夥伴。'}</p>
       <p class="lbl">年紀</p><div class="seg" role="group" aria-label="小童或大童"><button data-ka="small" class="${d.age !== 'big' ? 'on' : ''}">小童</button><button data-ka="big" class="${d.age === 'big' ? 'on' : ''}">大童</button></div>
       <p class="muted sm">${d.age === 'big' ? '大童：用自己的 iPhone，每一站可以拍 4 張照片、錄 1 段 10 秒影片、1 段 15 秒錄音。' : '小童：用爸媽的手機刷吊飾蓋章，可以錄一句話，不能拍照。'}</p>
       <div class="row"><button class="btn main" id="ksave">${icon('check')}儲存</button>${k ? `<button class="btn danger sm" id="kdel">${icon('trash')}刪除</button>` : ''}<button class="btn sm" id="kx">取消</button></div>
@@ -1361,10 +1363,11 @@ function kidEditor(k) {
     $('#kn').oninput = e => { d.name = e.target.value; };
     sb.querySelectorAll('[data-kc]').forEach(b => b.onclick = () => { d.color = b.dataset.kc; draw(); });
     sb.querySelectorAll('[data-ka]').forEach(b => b.onclick = () => { d.age = b.dataset.ka; draw(); });
+    sb.querySelectorAll('[data-kt]').forEach(b => b.onclick = () => { d.theme = b.dataset.kt; draw(); });
     $('#kx').onclick = closeSheet;
     $('#ksave').onclick = async () => {
       if (!d.name.trim()) { toast('請填小名'); return; }
-      if (k) upsertKid({ ...d, name: d.name.trim() }); else newKid(d.name, d.color, d.age);
+      if (k) upsertKid({ ...d, name: d.name.trim() }); else newKid(d.name, d.color, d.age, d.theme);
       await closeSheet(); toast('已儲存'); rerender();
     };
     if ($('#kdel')) $('#kdel').onclick = async () => { if (await confirmDlg(`刪除「${k.name}」的設定？他的章和照片都會留著。`, '刪除')) { removeKid(k.id); await closeSheet(); rerender(); } };
@@ -1388,7 +1391,7 @@ async function settings() {
     <section class="sec">
       <h2 class="h2">孩子</h2>
       <label class="switch"><span><b>孩子打卡</b><br><span class="muted sm">孩子有自己的打卡頁和吊飾；地圖可以分開看大人和孩子。關掉後只會隱藏，紀錄都還在。</span></span><input type="checkbox" id="kidm" ${kidOn() ? 'checked' : ''}></label>
-      ${kidOn() ? `<div class="kidlist">${getKids().map(k => `<div class="kidcard" style="--kc:${colorHex(k)}"><span class="kidbee">${beeSVG('')}</span><div class="card-main"><b>${esc(k.name)}</b><small>${k.age === 'big' ? '大童・用自己的手機，可以拍照、錄影、錄音' : '小童・用爸媽的手機蓋章'}</small></div><button class="btn sm" data-kedit="${esc(k.id)}">編輯</button></div>
+      ${kidOn() ? `<div class="kidlist">${getKids().map(k => `<div class="kidcard" style="--kc:${colorHex(k)}"><span class="kidbee">${beeSVG('')}</span><div class="card-main"><b>${esc(k.name)}</b><small>${k.age === 'big' ? '大童・用自己的手機，可以拍照、錄影、錄音' : '小童・用爸媽的手機蓋章'}・${k.theme === 'block' ? '方塊冒險' : '花園小夥伴'}</small></div><button class="btn sm" data-kedit="${esc(k.id)}">編輯</button></div>
         <div class="copyrow kidurl"><code>${esc(kidUrl(base, k))}</code><button class="btn sm" data-copy="${esc(kidUrl(base, k))}">複製</button><a class="btn sm" href="${esc(kidUrl(base, k).replace('tap=1&', ''))}">打開</a></div>`).join('') || '<p class="muted sm">還沒有設定孩子。新增後，每個孩子會有自己的吊飾網址。</p>'}</div>
       <div class="row"><button class="btn sm" id="kadd">${icon('plus')}新增孩子</button></div>
       <p class="muted sm">把孩子的網址寫進他的吊飾。大童：用他自己的 iPhone 碰吊飾（或打開網址），之後再「加到主畫面」。</p>` : ''}

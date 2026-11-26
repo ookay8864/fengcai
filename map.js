@@ -114,7 +114,7 @@ export function markerSVG(x, y, c, num, s = 1, cls = '', photo = null, numStyle 
       g += `<text x="${f1(x)}" y="${f1(y)}" dy=".36em" class="mk-num" style="font-size:${f1((String(num).length > 1 ? 8.4 : 10) * s)}px">${num}</text>`;
       if (kid) g += `<g transform="translate(${f1(x + 12 * s)} ${f1(y - 12 * s)}) scale(${f1(.62 * s)})">${kb(c)}</g>`;
     } else {
-      g += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(14 * s)}" class="mk-kidbg"/><g transform="translate(${f1(x)} ${f1(y + 2 * s)}) scale(${f1(1.05 * s)})">${kb(c)}</g>`;
+      g += `<ellipse cx="${f1(x)}" cy="${f1(y + 11 * s)}" rx="${f1(8 * s)}" ry="${f1(2.6 * s)}" class="mk-shadow"/><g transform="translate(${f1(x)} ${f1(y + 2 * s)}) scale(${f1(1.05 * s)})">${kb(c)}</g>`;
       g += `<circle cx="${f1(x + 11 * s)}" cy="${f1(y + 11 * s)}" r="${f1(7.2 * s)}" class="mk-badge"/><text x="${f1(x + 11 * s)}" y="${f1(y + 11 * s)}" dy=".36em" class="mk-num" style="font-size:${f1(8.4 * s)}px">${num}</text>`;
     }
     return `<g class="mk ${cls}" style="transform-origin:${f1(x)}px ${f1(y)}px">${g}</g>`;
@@ -128,7 +128,7 @@ export function markerSVG(x, y, c, num, s = 1, cls = '', photo = null, numStyle 
     if (n >= 20) g += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(22 * s)}" class="mk-halo"/>`;
   }
   if (adult) g += flowerShape(x, y, 12 * s);
-  if (kid && !adult) g += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(14 * s)}" class="mk-kidbg"/><g transform="translate(${f1(x)} ${f1(y + 2 * s)}) scale(${f1(1.05 * s)})">${kb(c)}</g>`;
+  if (kid && !adult) g += `<ellipse cx="${f1(x)}" cy="${f1(y + 11 * s)}" rx="${f1(8 * s)}" ry="${f1(2.6 * s)}" class="mk-shadow"/><g transform="translate(${f1(x)} ${f1(y + 2 * s)}) scale(${f1(1.05 * s)})">${kb(c)}</g>`;
   if (kid && adult) g += `<g transform="translate(${f1(x + 3 * s)} ${f1(y - 6 * s)}) scale(${f1(.8 * s)})">${kb(c)}</g>`;
   if (num != null) g += `<circle cx="${f1(x + 11 * s)}" cy="${f1(y + 11 * s)}" r="${f1(6.8 * s)}" class="mk-badge"/><text x="${f1(x + 11 * s)}" y="${f1(y + 11 * s)}" dy=".36em" class="mk-num" style="font-size:${f1(8.4 * s)}px">${num}</text>`;
   return `<g class="mk ${cls}" style="transform-origin:${f1(x)}px ${f1(y)}px">${g}</g>`;

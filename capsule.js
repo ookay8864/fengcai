@@ -38,7 +38,7 @@ function sealedLabel(c) {
 const fillOf = c => (c.secrecy === 'secret' ? 0.5 : Math.min(1, Math.max(0.06, (Date.now() - c.createdAt) / Math.max(DAY, c.openAt - c.createdAt))));
 
 // 一格蜂巢（SVG）：sealed 封蠟、open 已打開、add 加一顆
-function hexCell(kind, fill = 0, img = '') {
+export function hexCell(kind, fill = 0, img = '') {
   const pts = '50,2 95,27 95,77 50,102 5,77 5,27';
   const id = 'h' + Math.random().toString(36).slice(2, 7);
   if (kind === 'add') return `<svg viewBox="0 0 100 104" class="hex add"><polygon points="${pts}" class="hx-add"/><path d="M50 36v32M34 52h32" class="hx-plus"/></svg>`;
