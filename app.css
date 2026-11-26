@@ -938,3 +938,4 @@ button.kfuture{border:0;font:inherit;cursor:pointer}
 .tl-capcard .mem{background:rgba(255,255,255,.75);box-shadow:none}
 .tl-cap-h{color:#8A5A00}
 .tl-row:has(.tl-capcard) .tl-date b{color:#B07A00}
+[hidden]{display:none!important}

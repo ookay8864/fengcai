@@ -417,11 +417,13 @@ function postcardBlob(tripId) {
     const t = await store.getTrip(tripId), data = t && (await collect(tripId));
     if (!data || !data.cs.length) return null;
     const [pc, sig] = pcSig(t, data);
-    if (t.pcCache && t.pcCache.sig === sig) return t.pcCache.blob;
+    // iPhone Safari：存在資料庫裡的 Blob 被重新儲存後可能失效（變成問號），所以改存成 ArrayBuffer
+    if (t.pcCache && t.pcCache.sig === sig && t.pcCache.buf) return new Blob([t.pcCache.buf], { type: 'image/jpeg' });
     const cv = await renderPostcard(data, pc);
     const blob = await new Promise(res => cv.toBlob(res, 'image/jpeg', 0.86));
+    if (!blob) return null;
     const fresh = await store.getTrip(tripId);
-    if (fresh) { fresh.pcCache = { sig, blob }; await store.saveTrip(fresh); }
+    if (fresh) { fresh.pcCache = { sig, buf: await blob.arrayBuffer() }; await store.saveTrip(fresh); }
     return blob;
   });
   pcQueue = job.catch(() => null);
@@ -432,7 +434,11 @@ async function fillPostcard(el, tripId) {
   el.dataset.done = '1';
   try {
     const b = await postcardBlob(tripId);
-    if (b) el.innerHTML = `<img src="${ou(b)}" alt="足跡明信片"><span class="tn-pc-hint">${icon('flower')}點明信片：換版型、配色、存到相簿</span>`;
+    if (b) {
+      el.innerHTML = `<img src="${ou(b)}" alt="足跡明信片"><span class="tn-pc-hint">${icon('flower')}點明信片：換版型、配色、存到相簿</span>`;
+      // 萬一圖片壞掉：清掉快取，重畫一次
+      el.querySelector('img').onerror = async () => { const t = await store.getTrip(tripId); if (t && t.pcCache) { delete t.pcCache; await store.saveTrip(t); } if (el.dataset.retry) { el.remove(); return; } el.dataset.retry = '1'; delete el.dataset.done; fillPostcard(el, tripId); };
+    }
     else el.remove();
   } catch (e) { console.error(e); el.remove(); }
 }
@@ -548,9 +554,9 @@ async function trips() {
   view.querySelectorAll('.tl-capcard [data-cap]').forEach(b => b.onclick = () => viewCapsule(b.dataset.cap));
   // 搜尋旅行包：名稱或去過的地點
   const qOf = {};
-  nodes.forEach(n => { qOf[n.t.id] = (n.t.name + ' ' + n.cs.map(c => c.placeName).join(' ')).toLowerCase(); });
+  nodes.forEach(n => { qOf[n.t.id] = norm(n.t.name + ' ' + n.cs.map(c => c.placeName).join(' ')); });
   const doSearch = q => {
-    q = q.trim().toLowerCase();
+    q = norm(q.trim());
     view.querySelector('.calbox').hidden = !!q;
     let any = false;
     view.querySelectorAll('.tl-sec').forEach(sec => {
@@ -574,6 +580,10 @@ async function trips() {
   }
 }
 
+// 搜尋：繁簡常用字都當成一樣（高德的地名多半是簡體）
+const TS = '廣广東东門门灣湾區区縣县鎮镇島岛華华龍龙陽阳園园館馆場场橋桥樓楼寶宝雲云臺台張张長长興兴會会實实學学習习鄉乡莊庄鳳凤羅罗蘭兰嶺岭漢汉灘滩濱滨澤泽溝沟灣湾峽峡嶼屿關关廟庙橋桥塔塔麗丽飯饭館馆廳厅樂乐歡欢遊游戲戏機机車车站站鐵铁線线號号記记國国際际紀纪貓猫鳥鸟魚鱼雞鸡麵面點点燒烧鍋锅湯汤飲饮茶茶廈厦層层廠厂業业樹树葉叶園园瀑瀑灑洒湖湖鳴鸣聖圣書书畫画藝艺術术體体育育醫医藥药銀银貨货買买賣卖網网絡络電电視视廣广蘇苏滬沪閩闽粵粤贛赣豐丰潁颖臨临濟济陝陕藏藏農农豬猪馬马驛驿遼辽寧宁圳圳灣湾門门澳澳緣缘綠绿紅红藍蓝黃黄邊边濟济';
+const T2S = {}; for (let i = 0; i < TS.length; i += 2) T2S[TS[i]] = TS[i + 1];
+const norm = s => [...(s || '').toLowerCase()].map(ch => T2S[ch] || ch).join('');
 // ---------- 日常分頁：月曆＋搜尋；「日子」一天一天看、「地方」看常去哪裡 ----------
 let dailyYM = null, dailyOpenDay = null;
 const cleanName = n => (n || '').replace(/（模擬）/g, '');
@@ -693,10 +703,10 @@ async function dailyView() {
   if (dailyOpenDay && byK[dailyOpenDay]) { const k = dailyOpenDay; dailyOpenDay = null; openDay(k); }
   // 搜尋地方
   const doSearch = q => {
-    q = q.trim().toLowerCase();
+    q = norm(q.trim());
     $('#dmain').hidden = !!q;
     if (!q) { $('#dsres').innerHTML = ''; return; }
-    const hit = Object.values(places).filter(p => p.name.toLowerCase().includes(q) || p.cs.some(c => (c.note || '').toLowerCase().includes(q))).sort((a, b) => b.cs[b.cs.length - 1].ts - a.cs[a.cs.length - 1].ts);
+    const hit = Object.values(places).filter(p => norm(p.name).includes(q) || p.cs.some(c => norm(c.note).includes(q))).sort((a, b) => b.cs[b.cs.length - 1].ts - a.cs[a.cs.length - 1].ts);
     $('#dsres').innerHTML = hit.length ? `<div class="dplaces">${hit.map(p => `<button class="dplace" data-pl="${esc(p.name)}"><span class="dp-n">${esc(p.name)}</span><span class="dp-c">${p.cs.length} 次・最近 ${md2(p.cs[p.cs.length - 1].ts)}</span></button>`).join('')}</div>` : '<p class="muted sm">找不到符合的地方</p>';
     $('#dsres').querySelectorAll('[data-pl]').forEach(b => b.onclick = () => placeSheet(b.dataset.pl));
   };
