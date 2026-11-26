@@ -14,7 +14,7 @@ import { loadBee, beeSVG } from './bee.js';
 import { initCapsule, hiveView, createView, checkDue, capsuleDays, memHTML, fillMemThumbs, viewCapsule, openedCapsules, anniversaryToday, dismissAnniversary, yearWord } from './capsule.js';
 
 const view = $('#view'), sheet = $('#sheet'), sb = $('#sheetbody');
-const MAX = CONFIG.maxVisualPerPlace;
+const MAX = CONFIG.maxVisualPerPlace, MAX_VIDEOS = 2;
 
 // ---------- 圖片網址管理（避免記憶體一直增加） ----------
 let urls = [];
@@ -165,6 +165,34 @@ async function goTrip() {
   const name = await newTrip();
   toast(`出發！之後的打卡都放進「${name}」`);
 }
+// ---------- 備份：分享選單 → 儲存到檔案 ----------
+async function doBackup(part, label = '') {
+  toast(part === 'all' ? '正在打包完整備份…' : '正在打包新增的部分…');
+  try {
+    const st = await store.backupStatus();
+    if (part === 'new' && st.last && !st.any) { toast('上次備份之後沒有新增，不用再備份'); return false; }
+    const { blob, ids } = await store.exportAll(part);
+    const d = new Date(), ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    const name = `蜂采備份-${ymd}-${part === 'all' ? '完整' : (label || '新增').replace(/[\\/:*?"<>|]/g, '')}.json`;
+    const file = new File([blob], name, { type: 'application/json' });
+    if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: name });
+    else { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+    await store.markBackup(ids, part === 'all');
+    toast(part === 'all' ? '完整備份好了！之前的小檔案可以刪掉' : '備份好了');
+    return true;
+  } catch (e) { if (e.name !== 'AbortError') toast('備份失敗：' + e.message); return false; }
+}
+// 旅行結束：問一下要不要備份
+async function backupPrompt(t) {
+  const st = await store.backupStatus();
+  if (!st.any) return;
+  const parts = [st.n.photo && `${st.n.photo} 張照片`, st.n.video && `${st.n.video} 段影片`, st.n.audio && `${st.n.audio} 段聲音`].filter(Boolean);
+  const ov = overlay(`<h2 class="h2" style="margin-top:0">${icon('check')}旅行結束了！要備份嗎？</h2>
+    <p class="muted" style="margin-top:0">上次備份之後新增了${parts.length ? ` ${parts.join('、')}` : '一些打卡'}。按「備份」後選「儲存到檔案」，放進「蜂采備份」資料夾。</p>
+    <div class="row"><button class="btn" id="bklater">下次再說</button><button class="btn main" id="bkgo">${icon('check')}備份</button></div>`);
+  ov.querySelector('#bklater').onclick = () => ov.remove();
+  ov.querySelector('#bkgo').onclick = async () => { ov.remove(); await doBackup('new', t.name); };
+}
 async function goDaily() {
   const t = await ensureActiveTrip();
   if (isDaily(t)) return;
@@ -172,7 +200,7 @@ async function goDaily() {
   const cs = await store.listCheckins(t.id);
   const undo = async () => { delete t.endedAt; await store.saveTrip(t); resumeTrip(t.id); toast('已回到旅行'); rerender(); };
   if (t.nameAuto && cs.length) nameCard(t, cs, undo);
-  else snack('歡迎回家，已回到日常', '復原', undo);
+  else { snack('歡迎回家，已回到日常', '復原', undo); if (cs.length) setTimeout(() => { if (!getActiveId() || getMode() !== 'trip') backupPrompt(t); }, 1800); }
 }
 // 旅行結束：依照去過的地方建議名字
 function nameSuggest(t, cs) {
@@ -193,7 +221,7 @@ function nameCard(t, cs, undo) {
     <div class="row"><button class="btn" id="nmskip">先不用</button><button class="btn main" id="nmok">${icon('check')}好</button></div>
     <a class="linkbtn" href="#capsule/new" id="nmcap" style="display:block;margin:10px auto 0;text-align:center">${icon('flower')}幫這趟旅行埋一顆時光膠囊</a>
     <button class="linkbtn" id="nmundo" style="display:block;margin:8px auto 0">不小心滑到的？回到旅行</button>`);
-  const save = async name => { if (name) { t.name = name; t.nameAuto = false; await store.saveTrip(t); toast(`已命名為「${name}」`); } ov.remove(); rerender(); };
+  const save = async name => { if (name) { t.name = name; t.nameAuto = false; await store.saveTrip(t); toast(`已命名為「${name}」`); } ov.remove(); rerender(); setTimeout(() => backupPrompt(t), 600); };
   ov.querySelectorAll('[data-s]').forEach(b => b.onclick = () => save(sug[+b.dataset.s]));
   ov.querySelector('#nmok').onclick = () => save(ov.querySelector('#nmin').value.trim());
   ov.querySelector('#nmskip').onclick = () => save('');
@@ -353,7 +381,9 @@ function afterCheckin(c) {
 async function addFiles(cid, fileList) {
   const files = [...fileList];
   if (!files.length) return;
-  const have = (await store.listMedia(cid)).filter(x => x.kind !== 'audio' && x.by !== 'kid').length;
+  const mine = (await store.listMedia(cid)).filter(x => x.kind !== 'audio' && x.by !== 'kid');
+  const have = mine.length;
+  let vids = mine.filter(x => x.kind === 'video').length, skipV = 0;
   const room = MAX - have;
   if (room <= 0) { toast(`每個地點最多 ${MAX} 張照片或影片`); return; }
   const take = files.slice(0, room);
@@ -364,9 +394,11 @@ async function addFiles(cid, fileList) {
     try {
       const isVideo = (f.type || '').startsWith('video') || /\.(mov|mp4|m4v)$/i.test(f.name || '');
       if (isVideo) {
+        if (vids >= MAX_VIDEOS) { skipV++; continue; }
         if (f.size > CONFIG.maxVideoMB * 1048576) { toast(`影片超過 ${CONFIG.maxVideoMB}MB，先略過，建議剪短一點再加`); continue; }
         const thumb = await videoThumb(f), d = await blobDims(thumb);
         await store.saveMedia({ id: uid(), checkinId: cid, kind: 'video', blob: f, thumb, star: false, ts: Date.now(), size: f.size, w: d?.w, h: d?.h });
+        vids++;
       } else {
         const blob = await compressImage(f, CONFIG.photoMax, 0.85);
         const thumb = await compressImage(f, 400, 0.7);
@@ -376,19 +408,30 @@ async function addFiles(cid, fileList) {
       ok++;
     } catch (e) { toast('有一個檔案無法加入：' + e.message); }
   }
-  if (ok) toast(`已加入 ${ok} 個檔案`);
+  if (skipV) toast(`每站最多 ${MAX_VIDEOS} 支影片，有 ${skipV} 支沒有加入`);
+  else if (ok) toast(`已加入 ${ok} 個檔案`);
   askPersist();
 }
 
-function recordSheet(cid, max = CONFIG.adultRecordSec) {
-  openSheet(`<h2 class="h2">錄一段聲音</h2><p class="muted">最長 ${max} 秒。可以錄孩子的心得，或現場的聲音。</p>
-    <div class="center"><button class="mic" id="mic" aria-label="開始或停止錄音">${icon('mic', 'big')}</button><p id="rs" class="big-n">按一下開始</p></div><div id="rprev"></div>`);
-  let timer = null, left = max, recDur = 0;
+// 錄聲音：每站一段；按一下開始、再按一下停止就自動存好；不滿意按垃圾桶刪掉再錄
+async function recordSheet(cid, max = CONFIG.adultRecordSec) {
+  const existing = (await store.listMedia(cid)).find(m => m.kind === 'audio' && m.by !== 'kid');
+  openSheet(`<h2 class="h2">錄一段聲音</h2><p class="muted">每站一段，最長 ${max} 秒。按一下開始，再按一下停止就會自動存好。</p>
+    <div class="center"><button class="mic" id="mic" aria-label="開始或停止錄音">${icon('mic', 'big')}</button><p id="rs" class="big-n">按一下開始</p></div><div id="rprev"></div>
+    <div class="row"><button class="btn main" id="rdone">${icon('check')}完成</button></div>`);
+  let timer = null, left = max;
   const mic = $('#mic'), rs = $('#rs');
+  const ready = () => { mic.hidden = false; rs.textContent = '按一下開始'; $('#rprev').innerHTML = ''; };
+  const showSaved = m => {
+    mic.hidden = true; rs.textContent = '已儲存。不滿意就按垃圾桶刪掉，再錄一次。';
+    $('#rprev').innerHTML = `<div class="audrow"><audio controls preload="metadata" src="${ou(m.blob)}"></audio><button class="icon-btn" id="rdel" aria-label="刪掉這段，重新錄">${icon('trash')}</button></div>`;
+    $('#rdel').onclick = async () => { await store.deleteMedia(m.id); toast('已刪掉，可以重新錄'); ready(); };
+  };
+  if (existing) showSaved(existing);
+  $('#rdone').onclick = async () => { if (activeRec) await stop(); await closeSheet(); if (location.hash.startsWith('#c/')) rerender(); };
   mic.onclick = async () => {
     if (activeRec) { stop(); return; }
     try { activeRec = await startRecorder(); } catch (e) { toast('無法使用麥克風：請允許 Safari 使用麥克風'); return; }
-    $('#rprev').innerHTML = '';
     mic.classList.add('on'); left = max; rs.textContent = `錄音中… ${left} 秒（再按一下停止）`;
     timer = setInterval(() => { left--; rs.textContent = `錄音中… ${left} 秒（再按一下停止）`; if (left <= 0) stop(); }, 1000);
   };
@@ -398,12 +441,32 @@ function recordSheet(cid, max = CONFIG.adultRecordSec) {
     if (!r) return;
     mic.classList.remove('on');
     const blob = await r.stop();
-    recDur = Math.max(1, max - left);
-    rs.textContent = '錄好了，聽聽看';
-    $('#rprev').innerHTML = `<audio controls src="${ou(blob)}" style="width:100%"></audio><div class="row"><button class="btn main" id="rsave">儲存</button><button class="btn" id="rredo">重錄</button></div>`;
-    $('#rsave').onclick = async () => { await store.saveMedia({ id: uid(), checkinId: cid, kind: 'audio', blob, by: 'adult', star: false, ts: Date.now(), size: blob.size, dur: recDur }); toast('聲音已儲存'); closeSheet(); };
-    $('#rredo').onclick = () => { $('#rprev').innerHTML = ''; rs.textContent = '按一下開始'; };
+    const m = { id: uid(), checkinId: cid, kind: 'audio', blob, by: 'adult', star: false, ts: Date.now(), size: blob.size, dur: Math.max(1, max - left) };
+    await store.saveMedia(m);
+    toast('聲音已儲存');
+    showSaved(m);
   }
+}
+
+// ---------- 聲音小膠囊：有錄音的地方顯示「▶ 0:12」，點一下就在原地播放 ----------
+let vPlayer = null, vChipEl = null;
+const fmtDur = s => { s = Math.max(1, Math.round(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+const vchip = m => `<span class="vchip" role="button" tabindex="0" data-vp="${m.id}" aria-label="播放聲音"><i aria-hidden="true"></i>${m.dur ? fmtDur(m.dur) : '聲音'}</span>`;
+function bindVchips(root, list) {
+  root.querySelectorAll('[data-vp]').forEach(el => {
+    const play = e => {
+      e.preventDefault(); e.stopPropagation();
+      const m = list.find(x => x.id === el.dataset.vp); if (!m) return;
+      if (vChipEl === el && vPlayer && !vPlayer.paused) { vPlayer.pause(); el.classList.remove('playing'); return; }
+      if (vPlayer) { vPlayer.pause(); vChipEl && vChipEl.classList.remove('playing'); }
+      vPlayer = new Audio(ou(m.blob)); vChipEl = el;
+      el.classList.add('playing');
+      vPlayer.onended = () => el.classList.remove('playing');
+      vPlayer.play().catch(() => { el.classList.remove('playing'); toast('這段聲音放不出來'); });
+    };
+    el.onclick = play;
+    el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') play(e); };
+  });
 }
 
 // ---------- 旅行包裡的明信片（存成一張圖，內容有變才重畫） ----------
@@ -569,15 +632,23 @@ async function trips() {
   $('#tsrch').onclick = () => { const bar = $('#srchbar'); bar.hidden = !bar.hidden; if (!bar.hidden) $('#tq').focus(); else { $('#tq').value = ''; doSearch(''); } };
   $('#tq').oninput = e => doSearch(e.target.value);
   $('#tqx').onclick = () => { $('#tq').value = ''; doSearch(''); $('#srchbar').hidden = true; };
-  // 封面小圖：每包第一張照片
+  // 封面小圖（每包第一張照片）＋聲音：卡片上寫幾段，每一站旁邊可以直接播放
+  const tAud = [];
   for (const n of nodes) {
-    const img = view.querySelector(`.tnode[data-node="${n.t.id}"] .tn-cover`);
-    if (!img) continue;
+    const node = view.querySelector(`.tnode[data-node="${n.t.id}"]`);
+    if (!node) continue;
+    const img = node.querySelector('.tn-cover');
+    let cover = false, na = 0;
     for (const c of n.cs) {
-      const m = (await store.listMedia(c.id)).find(x => x.kind !== 'audio' && (x.thumb || x.kind === 'photo'));
-      if (m) { img.innerHTML = `<img src="${ou(m.thumb || m.blob)}" alt="">`; break; }
+      const ms = await store.listMedia(c.id);
+      const m = !cover && ms.find(x => x.kind !== 'audio' && (x.thumb || x.kind === 'photo'));
+      if (m && img) { img.innerHTML = `<img src="${ou(m.thumb || m.blob)}" alt="">`; cover = true; }
+      const au = ms.filter(x => x.kind === 'audio');
+      if (au.length) { na += au.length; tAud.push(...au); const st = node.querySelector(`.tn-stop[href="#c/${c.id}"]`); if (st) st.insertAdjacentHTML('beforeend', vchip(au[0])); }
     }
+    if (na) node.querySelector('.tn-main small')?.insertAdjacentHTML('beforeend', ` <span class="vcount"><i aria-hidden="true"></i>${na} 段</span>`);
   }
+  bindVchips(view, tAud);
 }
 
 // 搜尋：繁簡常用字都當成一樣（高德的地名多半是簡體）
@@ -592,8 +663,9 @@ async function dailyView() {
   let cs = [];
   for (const t of ts) cs = cs.concat(await store.listCheckins(t.id));
   cs.sort((a, b) => a.ts - b.ts);
-  const vis = {};
-  for (const c of cs) vis[c.id] = (await store.listMedia(c.id)).filter(m => m.kind !== 'audio' && (m.thumb || m.kind === 'photo'));
+  const vis = {}, auds = {}, allAud = [];
+  for (const c of cs) { const ms = await store.listMedia(c.id); vis[c.id] = ms.filter(m => m.kind !== 'audio' && (m.thumb || m.kind === 'photo')); auds[c.id] = ms.filter(m => m.kind === 'audio'); allAud.push(...auds[c.id]); }
+  const chipsOf = c => auds[c.id].slice(0, 1).map(vchip).join('');
   // 一天一組
   const days = [], byK = {};
   cs.forEach(c => { const k = dayKey(c.ts); if (!byK[k]) { byK[k] = { k, ts: c.ts, cs: [], ph: [] }; days.push(byK[k]); } byK[k].cs.push(c); byK[k].ph.push(...vis[c.id]); });
@@ -620,7 +692,7 @@ async function dailyView() {
       <div id="dlist"></div>
       <div class="row" style="margin-top:18px"><button class="linkbtn" id="dmv">${icon('trip')}把某幾天搬進旅行包</button></div>` : '<p class="empty">還沒有日常打卡。打卡頁的開關在「日常」時打卡，就會出現在這裡。</p>'}
     </div>`;
-  const stopRow = c => `<a class="tn-stop" href="#c/${c.id}"><span class="dstop-dot"></span><span class="tn-tm">${fmtTime(c.ts)}</span><b>${esc(cleanName(c.placeName))}</b>${vis[c.id].length ? `<span class="dstop-ph">${icon('camera')}${vis[c.id].length}</span>` : ''}</a>`;
+  const stopRow = c => `<a class="tn-stop" href="#c/${c.id}"><span class="dstop-dot"></span><span class="tn-tm">${fmtTime(c.ts)}</span><b>${esc(cleanName(c.placeName))}</b>${chipsOf(c)}${vis[c.id].length ? `<span class="dstop-ph">${icon('camera')}${vis[c.id].length}</span>` : ''}</a>`;
   const thumbs = (list, n) => list.slice(0, n).map(m => `<img src="${ou(m.thumb || m.blob)}" alt="">`).join('');
   const md2 = t => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()}`; };
   const wk = t => `週${'日一二三四五六'[new Date(t).getDay()]}`;
@@ -630,13 +702,14 @@ async function dailyView() {
     days.forEach(d => {
       const dt = new Date(d.ts), mk = `${dt.getFullYear()} 年 ${dt.getMonth() + 1} 月`;
       if (mk !== lastM) { h += `<h3 class="dmonth">${mk}</h3>`; lastM = mk; }
-      const names = d.cs.map(c => `<a href="#c/${c.id}">${esc(cleanName(c.placeName))}</a>`).join('、');
+      const names = d.cs.map(c => `<a href="#c/${c.id}">${esc(cleanName(c.placeName))}</a>${chipsOf(c)}`).join('、');
       if (d.ph.length) {
         const firstPh = d.cs.find(c => vis[c.id].length);
         h += `<div class="dcard"><a class="dc-ph n${Math.min(3, d.ph.length)}" href="#c/${firstPh.id}">${thumbs(d.ph, 3)}${d.ph.length > 3 ? `<span class="dc-more">+${d.ph.length - 3}</span>` : ''}</a><div class="dc-b"><p class="dc-d">${md2(d.ts)} <span>${wk(d.ts)}</span></p><p class="dc-pl">${names}</p></div></div>`;
       } else h += `<div class="dline"><span class="dl-d">${md2(d.ts)}<small>${wk(d.ts)}</small></span><span class="dl-pl">${names}</span></div>`;
     });
     $('#dlist').innerHTML = h;
+    bindVchips($('#dlist'), allAud);
   };
   // 「地方」：常去排行
   const drawPlaces = () => {
@@ -653,8 +726,9 @@ async function dailyView() {
     const list = [...p.cs].reverse(), ph = list.flatMap(c => vis[c.id]);
     openSheet(`<h2 class="h2" style="margin-top:0">${esc(name)}</h2><p class="muted sm">去過 ${p.cs.length} 次・第一次是 ${fmtDate(p.cs[0].ts)}</p>
       ${ph.length ? `<div class="dsh-ph">${thumbs(ph, 8)}</div>` : ''}
-      <div class="dsh-list">${list.map(c => `<a class="tn-stop" href="#c/${c.id}"><span class="dstop-dot"></span><span class="tn-tm">${fmtDate(c.ts).replace(/ 週.$/, '')} ${fmtTime(c.ts)}</span>${vis[c.id].length ? `<span class="dstop-ph">${icon('camera')}${vis[c.id].length}</span>` : ''}</a>`).join('')}</div>`);
+      <div class="dsh-list">${list.map(c => `<a class="tn-stop" href="#c/${c.id}"><span class="dstop-dot"></span><span class="tn-tm">${fmtDate(c.ts).replace(/ 週.$/, '')} ${fmtTime(c.ts)}</span>${chipsOf(c)}${vis[c.id].length ? `<span class="dstop-ph">${icon('camera')}${vis[c.id].length}</span>` : ''}</a>`).join('')}</div>`);
     sb.querySelectorAll('a').forEach(a => a.addEventListener('click', () => closeSheet()));
+    bindVchips(sb, allAud);
   };
   // 「地圖」：蜂蜜光暈，跟「地方」用同一個期間
   const perSeg = () => `<div class="seg sm dper" role="group" aria-label="期間">${[['month', '這個月'], ['year', '今年'], ['all', '全部']].map(([k2, t]) => `<button data-pp="${k2}" class="${period === k2 ? 'on' : ''}">${t}</button>`).join('')}</div>`;
@@ -690,6 +764,7 @@ async function dailyView() {
     if (!o) { toast('這天沒有日常打卡'); return; }
     dailyOpenDay = dailyOpenDay === k ? null : k;
     $('#dayopen').innerHTML = dailyOpenDay ? `<div class="dayopen"><p class="tn-dt">${fmtDate(o.ts)}</p>${o.cs.map(stopRow).join('')}</div>` : '';
+    bindVchips($('#dayopen'), allAud);
     drawCal();
   };
   const move = k => { let [y, m] = dailyYM; m += k; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; } dailyYM = [y, m]; drawCal(); };
@@ -1460,7 +1535,7 @@ async function checkin(id) {
     <div class="detail-head"><div class="card-ic lg">${icon(b.icon)}</div><div><h1 class="h1">${esc(c.placeName)}</h1><p class="muted">${fmtDate(c.ts)} ${fmtTime(c.ts)}${c.acc ? ` · 誤差約 ${c.acc} 公尺` : ''}</p>${isKid(c) && isAdult(c) ? '<span class="tag kid">孩子＋大人一起打卡</span>' : ''}</div></div>
     ${pending ? `<div class="kidbox">${icon('honey')}<div><b>這是孩子蓋的章（${esc(b.name)}）</b><p>系統自動選了最近的地點，請確認是否正確。</p><div class="row"><button class="btn main sm" id="conf">${icon('check')}地點正確</button><button class="btn sm" id="ren">${icon('pin')}修改地點</button></div></div></div>` : ''}
     <div class="row">${pending ? '' : `<button class="btn sm" id="ren">${icon('pin')}修改地點</button>`}${inDaily ? '' : `<button class="btn sm" id="todaily">${icon('flower')}移到日常</button>`}${c.lat != null ? `<a class="btn sm" href="${amapLink(c.lat, c.lng, c.placeName)}" target="_blank" rel="noopener">${icon('map')}在高德地圖開啟</a>` : ''}</div>
-    <h2 class="h2">照片與影片 <small>${vis.length}/${MAX}</small></h2>
+    <h2 class="h2">照片與影片 <small>${vis.length}/${MAX}・影片最多 ${MAX_VIDEOS} 支</small></h2>
     <div class="grid">
       ${vis.map(x => `<div class="tile${x.star ? ' star' : ''}"><button class="tile-v" data-v="${x.id}" aria-label="查看">${x.thumb ? `<img src="${ou(x.thumb)}" alt="">` : `<span class="vph">${icon('play')}</span>`}${x.kind === 'video' ? `<span class="vbadge">${icon('play')}</span>` : ''}</button><button class="tile-s" data-s="${x.id}" aria-pressed="${x.star ? 'true' : 'false'}" aria-label="精選"><span class="star-badge">${icon('star')}</span></button>${x.focus ? `<i class="focus-dot" style="left:${(x.focus.x * 100).toFixed(1)}%;top:${(x.focus.y * 100).toFixed(1)}%"></i>` : ''}</div>`).join('')}
       ${vis.length < MAX ? `<label class="tile add">${icon('plus')}<span>加照片<br>或影片</span><input type="file" accept="image/*,video/*" multiple id="f"></label>` : ''}
@@ -1469,7 +1544,7 @@ async function checkin(id) {
     ${kidHTML}
     <h2 class="h2">聲音</h2>
     ${aud.map(x => `<div class="audrow"><span class="tag">大人</span><audio controls preload="metadata" src="${ou(x.blob)}"></audio><button class="icon-btn" data-d="${x.id}" aria-label="刪除這段聲音">${icon('trash')}</button></div>`).join('') || '<p class="muted">還沒有聲音。</p>'}
-    <button class="btn" id="rec" style="margin-top:8px">${icon('mic')}錄一段聲音</button>
+    ${aud.length ? '<p class="muted sm">每站一段聲音。想重錄，先按垃圾桶刪掉。</p>' : `<button class="btn" id="rec" style="margin-top:8px">${icon('mic')}錄一段聲音</button>`}
     <h2 class="h2">備註</h2>
     <textarea id="note" class="inp" rows="3" placeholder="今天發生了什麼好玩的事？">${esc(c.note || '')}</textarea>
     <div class="row"><button class="btn danger" id="del">${icon('trash')}刪除這次打卡</button></div>`;
@@ -1477,7 +1552,7 @@ async function checkin(id) {
   $('#ren').onclick = () => editPlaceSheet(c);
   if ($('#conf')) $('#conf').onclick = async () => { c.confirmed = true; await store.saveCheckin(c); toast('已確認'); rerender(); };
   if ($('#f')) $('#f').onchange = async e => { await addFiles(id, e.target.files); rerender(); };
-  $('#rec').onclick = () => recordSheet(id);
+  if ($('#rec')) $('#rec').onclick = () => recordSheet(id);
   let nt = null;
   $('#note').oninput = e => { clearTimeout(nt); nt = setTimeout(async () => { c.note = e.target.value; await store.saveCheckin(c); }, 500); };
   view.querySelectorAll('[data-s]').forEach(btn => btn.onclick = async e => {
@@ -1625,8 +1700,11 @@ async function settings() {
     </section>
     <section class="sec">
       <h2 class="h2">備份</h2>
-      <p class="muted sm">測試期資料只存在這支手機的 Safari 裡。每趟旅行結束，請匯出一次備份存到「檔案」或 iCloud。${usage ? `（${usage}${persisted ? '，已設定為不自動清除' : ''}）` : ''}</p>
-      <div class="row"><button class="btn main sm" id="exp">匯出備份</button><label class="btn sm file">從備份還原<input type="file" accept="application/json,.json" id="imp"></label></div>
+      <p class="muted sm">資料只存在這支手機的 Safari 裡。${usage ? `${usage}${persisted ? '，已設定為不自動清除' : ''}。` : ''}</p>
+      <div class="bkinfo" id="bkinfo">讀取中…</div>
+      <div class="row"><button class="btn main sm" id="expnew">${icon('check')}備份新增的</button><button class="btn sm" id="expall">完整備份</button></div>
+      <div class="row"><label class="btn sm file">從備份還原<input type="file" accept="application/json,.json" id="imp" multiple></label></div>
+      <p class="muted sm">存的時候選「儲存到檔案」，放在 iCloud 雲碟的「蜂采備份」資料夾。還原時可以把資料夾裡的檔案一次全選。做過完整備份後，之前的小檔案就可以刪掉。</p>
     </section>
     <section class="sec"${kidOn() ? '' : ' hidden'}>
       <h2 class="h2">自訂花園主題</h2>
@@ -1666,20 +1744,23 @@ async function settings() {
     const r = await testAMap();
     box.className = 'keyres ' + (r.ok ? 'ok' : 'warn'); box.textContent = (r.ok ? '✓ ' : '✗ ') + r.msg;
   };
-  $('#exp').onclick = async () => {
-    toast('正在打包備份…');
-    try {
-      const blob = await store.exportAll();
-      const d = new Date();
-      const name = `蜂采備份-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.json`;
-      const file = new File([blob], name, { type: 'application/json' });
-      if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: name }); }
-      else { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
-    } catch (e) { if (e.name !== 'AbortError') toast('備份失敗：' + e.message); }
+  const drawBk = async () => {
+    const b = await store.backupStatus(), el = $('#bkinfo'); if (!el) return;
+    const parts = [b.n.photo && `${b.n.photo} 張照片`, b.n.video && `${b.n.video} 段影片`, b.n.audio && `${b.n.audio} 段聲音`].filter(Boolean);
+    el.innerHTML = b.last ? `上次備份：<b>${fmtDate(b.last)}</b>${b.full ? `・上次完整備份：${fmtDate(b.full).replace(/ 週.$/, '')}` : ''}<br>${parts.length || b.checkins ? `之後新增了 ${[...parts, b.checkins && `${b.checkins} 次打卡`].filter(Boolean).join('、')}` : '之後沒有新增，已經是最新的'}` : '<b>還沒有備份過。</b>建議先做一次完整備份。';
   };
+  drawBk();
+  $('#expnew').onclick = async () => { if (await doBackup('new')) drawBk(); };
+  $('#expall').onclick = async () => { if (await doBackup('all')) drawBk(); };
   $('#imp').onchange = async e => {
-    const f = e.target.files[0]; if (!f) return;
-    try { const r = await store.importAll(f); toast(`已還原 ${r.trips} 個旅程、${r.checkins} 次打卡`); } catch (err) { toast('還原失敗：' + err.message); }
+    const fs = [...e.target.files]; if (!fs.length) return;
+    let t = 0, c = 0, m = 0, bad = 0;
+    for (const [i, f] of fs.entries()) {
+      toast(`還原中 ${i + 1}/${fs.length}…`);
+      try { const r = await store.importAll(f); t = Math.max(t, r.trips); c = Math.max(c, r.checkins); m += r.media; } catch (err) { bad++; }
+    }
+    toast(bad ? `還原完成，有 ${bad} 個檔案讀不進來` : `已還原 ${t} 個旅程、${c} 次打卡、${m} 個照片影片聲音`);
+    drawBk();
   };
   $('#wipe').onclick = async () => {
     if (!(await confirmDlg('確定要清除所有旅程、打卡、照片和聲音？建議先匯出備份。此動作無法復原。', '全部清除'))) return;

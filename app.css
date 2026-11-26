@@ -954,3 +954,19 @@ button.kfuture{border:0;font:inherit;cursor:pointer}
 .pcmode-edit,.pcmode-view{gap:8px;align-items:center}
 .pchead .pcmode-view{display:flex}
 .pcpage.pc-editing .pchead .pcmode-view{display:none}
+
+/* v0.19：聲音小膠囊（透明）、備份資訊 */
+.vchip{display:inline-flex;align-items:center;gap:4px;margin-left:6px;padding:1px 8px 1px 3px;border-radius:999px;border:1px solid rgba(74,53,32,.28);background:transparent;color:#7A6650;font:600 12px var(--font-num);line-height:18px;vertical-align:middle;cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent}
+.vchip i{position:relative;width:16px;height:16px;border-radius:50%;background:#4A3520;flex-shrink:0}
+.vchip i::after{content:"";position:absolute;left:6px;top:4.5px;border-style:solid;border-width:3.5px 0 3.5px 5.5px;border-color:transparent transparent transparent #fff}
+.vchip.playing{border-color:#4A3520;color:#4A3520}
+.vchip.playing i::after{left:5px;top:5px;width:2px;height:6px;border:0;background:#fff;box-shadow:4px 0 0 #fff}
+.tn-stop .vchip{margin-left:8px}
+.vcount{display:inline-flex;align-items:center;gap:4px;margin-left:4px;padding:0 7px 0 3px;border-radius:999px;border:1px solid rgba(74,53,32,.28);color:#7A6650;font-size:11.5px;line-height:16px;vertical-align:1px}
+.vcount i{position:relative;width:12px;height:12px;border-radius:50%;background:#4A3520}
+.vcount i::after{content:"";position:absolute;left:4.5px;top:3px;border-style:solid;border-width:3px 0 3px 4.5px;border-color:transparent transparent transparent #fff}
+.bkinfo{margin:8px 0 4px;padding:10px 12px;border-radius:var(--radius);background:var(--card);font-size:14px;line-height:1.6}
+.dc-ph{overflow:hidden;grid-auto-rows:minmax(0,1fr)}
+.dc-ph.n1,.dc-ph.n2{grid-template-rows:minmax(0,1fr)}
+.dc-ph.n3{grid-template-rows:minmax(0,1fr) minmax(0,1fr)}
+.dc-ph img{min-height:0}

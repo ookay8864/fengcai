@@ -95,14 +95,18 @@ export const LocalStore = {
   saveCapsule: c => put('capsules', c),
   deleteCapsule: id => del('capsules', id),
 
-  // 備份：整包資料（含照片、影片、聲音、時光膠囊）匯出成一個檔案
-  async exportAll() {
-    const media = [];
-    for (const m of await all('media')) media.push({ ...m, blob: await blobToData(m.blob), thumb: m.thumb ? await blobToData(m.thumb) : null });
+  // 備份：匯出成一個檔案。part='all' 完整備份；part='new' 只放上次備份之後新增的照片、影片、聲音
+  // （旅程、打卡、時光膠囊、孩子和設定很小，每次都會整份放進去，所以每個小檔案都能單獨還原文字資料）
+  async exportAll(part = 'all') {
+    const done = backedIds(), media = [], ids = [];
+    for (const m of await all('media')) {
+      if (part === 'new' && done.has(m.id)) continue;
+      media.push({ ...m, blob: await blobToData(m.blob), thumb: m.thumb ? await blobToData(m.thumb) : null }); ids.push(m.id);
+    }
     const capsules = [];
     for (const c of await all('capsules')) capsules.push(await capsuleToData(c));
-    const data = { app: 'fengcai', v: 2, at: Date.now(), trips: (await all('trips')).map(({ pcCache, ...t }) => t), checkins: await all('checkins'), media, capsules };
-    return new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const data = { app: 'fengcai', v: 3, part, at: Date.now(), trips: (await all('trips')).map(({ pcCache, ...t }) => t), checkins: await all('checkins'), media, capsules, settings: exportSettings() };
+    return { blob: new Blob([JSON.stringify(data)], { type: 'application/json' }), ids };
   },
   async importAll(file) {
     const data = JSON.parse(await file.text());
@@ -111,10 +115,51 @@ export const LocalStore = {
     for (const c of data.checkins || []) await put('checkins', c);
     for (const m of data.media || []) await put('media', { ...m, blob: await dataToBlob(m.blob), thumb: await dataToBlob(m.thumb) });
     for (const c of data.capsules || []) await put('capsules', await capsuleFromData(c));
-    return { trips: (data.trips || []).length, checkins: (data.checkins || []).length };
+    if (data.settings) importSettings(data.settings);
+    // 還原進來的東西都算已經備份過
+    markBacked((data.media || []).map(m => m.id), false, data.at);
+    return { trips: (data.trips || []).length, checkins: (data.checkins || []).length, media: (data.media || []).length };
   },
+  // 上次備份之後新增了多少
+  async backupStatus() {
+    const done = backedIds(), last = +(localStorage.getItem('fc-bk-last') || 0);
+    const n = { photo: 0, video: 0, audio: 0 };
+    for (const m of await all('media')) if (!done.has(m.id)) n[m.kind] = (n[m.kind] || 0) + 1;
+    const cs = (await all('checkins')).filter(c => (c.ts || 0) > last).length;
+    return { last, full: +(localStorage.getItem('fc-bk-full') || 0), n, checkins: cs, any: n.photo + n.video + n.audio + cs > 0 };
+  },
+  async markBackup(ids, full) { markBacked(full ? (await all('media')).map(m => m.id) : ids, full, Date.now()); },
   async clearAll() { for (const n of ['media', 'checkins', 'trips', 'capsules']) await P((await os(n, 'readwrite')).clear()); }
 };
+
+// ---------- 備份記錄：哪些照片、影片、聲音已經備份過 ----------
+function backedIds() { try { return new Set(JSON.parse(localStorage.getItem('fc-bk-ids') || '[]')); } catch (e) { return new Set(); } }
+function markBacked(ids, full, at) {
+  try {
+    const set = full ? new Set(ids) : backedIds(); ids.forEach(i => set.add(i));
+    localStorage.setItem('fc-bk-ids', JSON.stringify([...set]));
+    localStorage.setItem('fc-bk-last', String(at || Date.now()));
+    if (full) localStorage.setItem('fc-bk-full', String(at || Date.now()));
+  } catch (e) {}
+}
+// 設定（孩子、地圖 Key、樣式…）一起備份；地名快取和備份記錄不用
+function exportSettings() {
+  const o = {};
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith('fc-') && !k.startsWith('fc-rg-') && !k.startsWith('fc-bk-') && k !== 'fc-active') o[k] = localStorage.getItem(k); } } catch (e) {}
+  return o;
+}
+function importSettings(o) {
+  try {
+    Object.entries(o).forEach(([k, v]) => {
+      if (k === 'fc-kids') {
+        // 孩子：用代號合併，這支手機已經有的以這支手機為準
+        const cur = JSON.parse(localStorage.getItem('fc-kids') || '[]'), add = JSON.parse(v || '[]');
+        add.forEach(x => { if (!cur.find(y => y.id === x.id)) cur.push(x); });
+        localStorage.setItem('fc-kids', JSON.stringify(cur));
+      } else if (localStorage.getItem(k) == null) localStorage.setItem(k, v);
+    });
+  } catch (e) {}
+}
 
 // 預留：雲端儲存（尚未實作）。之後照 LocalStore 的函式名稱補上即可。
 const CloudStore = null;
