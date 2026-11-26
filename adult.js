@@ -173,8 +173,8 @@ async function doBackup(part, label = '') {
     if (part === 'new' && st.last && !st.any) { toast('上次備份之後沒有新增，不用再備份'); return false; }
     const { blob, ids } = await store.exportAll(part);
     const d = new Date(), ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-    const name = `蜂采備份-${ymd}-${part === 'all' ? '完整' : (label || '新增').replace(/[\\/:*?"<>|]/g, '')}.json`;
-    const file = new File([blob], name, { type: 'application/json' });
+    const name = `蜂采備份-${ymd}-${part === 'all' ? '完整' : (label || '新增').replace(/[\\/:*?"<>|]/g, '')}.fcbak`;
+    const file = new File([blob], name, { type: 'application/octet-stream' });
     if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: name });
     else { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
     await store.markBackup(ids, part === 'all');
@@ -1703,7 +1703,7 @@ async function settings() {
       <p class="muted sm">資料只存在這支手機的 Safari 裡。${usage ? `${usage}${persisted ? '，已設定為不自動清除' : ''}。` : ''}</p>
       <div class="bkinfo" id="bkinfo">讀取中…</div>
       <div class="row"><button class="btn main sm" id="expnew">${icon('check')}備份新增的</button><button class="btn sm" id="expall">完整備份</button></div>
-      <div class="row"><label class="btn sm file">從備份還原<input type="file" accept="application/json,.json" id="imp" multiple></label></div>
+      <div class="row"><label class="btn sm file">從備份還原<input type="file" id="imp" multiple></label></div>
       <p class="muted sm">存的時候選「儲存到檔案」，放在 iCloud 雲碟的「蜂采備份」資料夾。還原時可以把資料夾裡的檔案一次全選。做過完整備份後，之前的小檔案就可以刪掉。</p>
     </section>
     <section class="sec"${kidOn() ? '' : ' hidden'}>

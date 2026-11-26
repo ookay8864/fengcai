@@ -96,25 +96,43 @@ export const LocalStore = {
   deleteCapsule: id => del('capsules', id),
 
   // 備份：匯出成一個檔案。part='all' 完整備份；part='new' 只放上次備份之後新增的照片、影片、聲音
-  // （旅程、打卡、時光膠囊、孩子和設定很小，每次都會整份放進去，所以每個小檔案都能單獨還原文字資料）
+  // 檔案格式（.fcbak）：第一行「FCBAK1 <說明的位元組數>」，接著是一段文字說明（旅程、打卡、設定，以及每個檔案在哪裡），
+  // 後面直接接上照片、影片、聲音的原始資料。不把影片轉成文字，所以 iPhone 不會因為記憶體不夠而當掉。
   async exportAll(part = 'all') {
-    const done = backedIds(), media = [], ids = [];
+    const done = backedIds(), parts = [], ids = [];
+    let off = 0;
+    const addBlob = b => { if (!b) return null; const ref = [off, b.size, b.type || '']; parts.push(b); off += b.size; return ref; };
+    const media = [];
     for (const m of await all('media')) {
       if (part === 'new' && done.has(m.id)) continue;
-      media.push({ ...m, blob: await blobToData(m.blob), thumb: m.thumb ? await blobToData(m.thumb) : null }); ids.push(m.id);
+      const { blob, thumb, ...meta } = m;
+      media.push({ ...meta, _b: addBlob(blob), _t: addBlob(thumb) }); ids.push(m.id);
     }
     const capsules = [];
-    for (const c of await all('capsules')) capsules.push(await capsuleToData(c));
-    const data = { app: 'fengcai', v: 3, part, at: Date.now(), trips: (await all('trips')).map(({ pcCache, ...t }) => t), checkins: await all('checkins'), media, capsules, settings: exportSettings() };
-    return { blob: new Blob([JSON.stringify(data)], { type: 'application/json' }), ids };
+    for (const c of await all('capsules')) capsules.push({ ...c, media: (c.media || []).map(({ blob, thumb, ...meta }) => ({ ...meta, _b: addBlob(blob), _t: addBlob(thumb) })) });
+    const head = { app: 'fengcai', v: 4, part, at: Date.now(), trips: (await all('trips')).map(({ pcCache, ...t }) => t), checkins: await all('checkins'), media, capsules, settings: exportSettings() };
+    const hb = new TextEncoder().encode(JSON.stringify(head));
+    return { blob: new Blob([`FCBAK1 ${hb.length}\n`, hb, ...parts], { type: 'application/octet-stream' }), ids };
   },
   async importAll(file) {
-    const data = JSON.parse(await file.text());
+    const first = await file.slice(0, 32).text();
+    let data, base = 0;
+    if (first.startsWith('FCBAK1 ')) {
+      const nl = first.indexOf('\n'), hlen = +first.slice(7, nl), hstart = new TextEncoder().encode(first.slice(0, nl + 1)).length;
+      data = JSON.parse(await file.slice(hstart, hstart + hlen).text());
+      base = hstart + hlen;
+    } else data = JSON.parse(await file.text()); // 舊的 .json 備份
     if (data.app !== 'fengcai') throw new Error('這不是蜂采的備份檔');
+    const take = ref => (ref ? file.slice(base + ref[0], base + ref[0] + ref[1], ref[2]) : null);
+    const fromRef = async (x, k) => (x['_' + k[0]] !== undefined ? take(x['_' + k[0]]) : await dataToBlob(x[k]));
     for (const t of data.trips || []) await put('trips', t);
     for (const c of data.checkins || []) await put('checkins', c);
-    for (const m of data.media || []) await put('media', { ...m, blob: await dataToBlob(m.blob), thumb: await dataToBlob(m.thumb) });
-    for (const c of data.capsules || []) await put('capsules', await capsuleFromData(c));
+    for (const m of data.media || []) { const { _b, _t, ...meta } = m; await put('media', { ...meta, blob: await fromRef(m, 'blob'), thumb: await fromRef(m, 'thumb') }); }
+    for (const c of data.capsules || []) {
+      const media = [];
+      for (const m of c.media || []) { const { _b, _t, ...meta } = m; media.push({ ...meta, blob: await fromRef(m, 'blob'), thumb: await fromRef(m, 'thumb') }); }
+      await put('capsules', { ...c, media });
+    }
     if (data.settings) importSettings(data.settings);
     // 還原進來的東西都算已經備份過
     markBacked((data.media || []).map(m => m.id), false, data.at);
