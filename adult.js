@@ -705,11 +705,14 @@ async function dailyView() {
       const names = d.cs.map(c => `<a href="#c/${c.id}">${esc(cleanName(c.placeName))}</a>${chipsOf(c)}`).join('、');
       if (d.ph.length) {
         // 照片：1 整張、2 左右、3 一大兩小、4 田字格、5 張以上一整排左右滑（每張一樣大）
-        const n = d.ph.length, strip = n >= 5;
+        // 精選（星星）排最前面，其他照拍的順序
+        const ord = [...d.ph.filter(m => m.star), ...d.ph.filter(m => !m.star)];
+        d.ph.splice(0, d.ph.length, ...ord);
+        const n = d.ph.length, strip = n >= 4;
         const phs = d.ph.map((m, i) => `<button class="dc-tile" data-dph="${d.k}" data-i="${i}" aria-label="看照片"><img src="${ou(m.thumb || m.blob)}" alt="" loading="lazy">${m.kind === 'video' ? `<span class="vbadge">${icon('play')}</span>` : ''}</button>`).join('');
         // 地點：小時間軸，先顯示 3 個，其餘收起來
         const rows = d.cs.map((c, i) => `<a class="dtl-row${i >= 3 ? ' more' : ''}" href="#c/${c.id}"><span class="dtl-t">${fmtTime(c.ts)}</span><span class="dtl-n">${esc(cleanName(c.placeName))}</span>${chipsOf(c)}</a>`).join('');
-        h += `<div class="dcard" data-day="${d.k}"><div class="dc-ph ${strip ? 'strip' : 'n' + n}">${phs}</div>
+        h += `<div class="dcard" data-day="${d.k}"><div class="dc-phw"><div class="dc-ph ${strip ? 'strip' : 'n' + n}">${phs}</div>${strip ? `<span class="dc-left" aria-hidden="true"></span>` : ''}</div>
           <div class="dc-b"><div class="dc-top"><p class="dc-d">${md2(d.ts)} <span>${wk(d.ts)}・${d.cs.length} 個地方</span></p><a class="dc-map" href="#map/day-${d.k}">${icon('map')}地圖</a></div>
           <div class="dtl">${rows}</div>${d.cs.length > 3 ? `<button class="dtl-more" data-more="${d.k}">還有 ${d.cs.length - 3} 個地方 ${icon('back', 'dn')}</button>` : ''}</div></div>`;
       } else h += `<div class="dline"><span class="dl-d">${md2(d.ts)}<small>${wk(d.ts)}</small></span><span class="dl-pl">${names}</span><a class="dc-map sm" href="#map/day-${d.k}" aria-label="在地圖上看這天">${icon('map')}</a></div>`;
@@ -718,6 +721,12 @@ async function dailyView() {
     bindVchips($('#dlist'), allAud);
     $('#dlist').querySelectorAll('[data-more]').forEach(b => b.onclick = () => { const card = b.closest('.dcard'); const open = card.classList.toggle('open'); b.innerHTML = open ? `收起 ${icon('back', 'up')}` : `還有 ${byK[b.dataset.more].cs.length - 3} 個地方 ${icon('back', 'dn')}`; });
     $('#dlist').querySelectorAll('[data-dph]').forEach(b => b.onclick = () => { const d = byK[b.dataset.dph]; viewer(d.ph[+b.dataset.i], d.ph); });
+    // 左右滑的那一排：右下角「+N」＝右邊還有幾張沒看到
+    $('#dlist').querySelectorAll('.dc-ph.strip').forEach(st => {
+      const badge = st.parentElement.querySelector('.dc-left'), n = st.children.length;
+      const upd = () => { const w = st.children[0].getBoundingClientRect().width + 2, seen = Math.floor((st.scrollLeft + st.clientWidth + 8) / w); const left = Math.max(0, n - seen); badge.textContent = `+${left}`; badge.hidden = !left; };
+      st.addEventListener('scroll', upd, { passive: true }); upd();
+    });
   };
   // 「地方」：常去排行
   const drawPlaces = () => {
@@ -1648,11 +1657,12 @@ function viewer(x, list) {
     const m = L[i]; u = URL.createObjectURL(m.blob);
     ov.innerHTML = `${m.kind === 'video' ? `<video src="${u}" controls playsinline autoplay></video>` : `<img src="${u}" alt="">`}
       ${L.length > 1 ? `<button class="vw-nav prev" data-a="prev" aria-label="上一張" ${i === 0 ? 'hidden' : ''}>${icon('back')}</button><button class="vw-nav next" data-a="next" aria-label="下一張" ${i === L.length - 1 ? 'hidden' : ''}>${icon('back')}</button><p class="vw-count">${i + 1} / ${L.length}</p>` : ''}
-      <div class="viewer-bar"><button class="btn" data-a="close">關閉</button><button class="btn" data-a="focus">設定焦點</button><button class="btn danger" data-a="del">${icon('trash')}刪除</button></div>`;
+      <div class="viewer-bar"><button class="btn" data-a="close">關閉</button>${m.kind === 'audio' ? '' : `<button class="btn${m.star ? ' main' : ''}" data-a="star">${icon('star')}${m.star ? '已精選' : '設為精選'}</button>`}<button class="btn" data-a="focus">設定焦點</button><button class="btn danger" data-a="del">${icon('trash')}刪除</button></div>`;
   };
+  let changed = false;
   draw();
   document.body.appendChild(ov);
-  const close = () => { ov.remove(); if (u) URL.revokeObjectURL(u); };
+  const close = () => { ov.remove(); if (u) URL.revokeObjectURL(u); if (changed) rerender(); };
   const go = d => { const n = i + d; if (n < 0 || n >= L.length) return; i = n; draw(); };
   let sx = null;
   ov.addEventListener('touchstart', e => { sx = e.touches[0].clientX; }, { passive: true });
@@ -1662,6 +1672,7 @@ function viewer(x, list) {
     if (a === 'close') close();
     if (a === 'prev') go(-1);
     if (a === 'next') go(1);
+    if (a === 'star') { const m = L[i]; m.star = !m.star; await store.saveMedia(m); changed = true; toast(m.star ? '設為精選，會排在最前面' : '取消精選'); draw(); }
     if (a === 'focus') { const m = L[i]; close(); if (await focusEditor(m)) rerender(); }
     if (a === 'del' && (await confirmDlg('刪除這個檔案？', '刪除'))) { await store.deleteMedia(L[i].id); close(); rerender(); }
   };

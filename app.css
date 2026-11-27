@@ -1010,3 +1010,8 @@ button.kfuture{border:0;font:inherit;cursor:pointer}
 .vw-nav[hidden]{display:none}
 .vw-count{position:absolute;top:calc(env(safe-area-inset-top) + 14px);left:0;right:0;text-align:center;color:#fff;font:700 14px var(--font-num);margin:0;z-index:2}
 .dtl-more .ic.dn{transform:rotate(-90deg)}.dtl-more .ic.up{transform:rotate(90deg)}
+/* v0.20.1：4 張以上就左右滑；精選排前面；右下角 +N */
+.dc-phw{position:relative}
+.dc-left{position:absolute;right:8px;bottom:8px;padding:2px 9px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;font:700 12.5px var(--font-num);pointer-events:none}
+.dc-left[hidden]{display:none}
+.viewer-bar .btn.main .ic{color:inherit}
