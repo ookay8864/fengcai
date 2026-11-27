@@ -704,12 +704,20 @@ async function dailyView() {
       if (mk !== lastM) { h += `<h3 class="dmonth">${mk}</h3>`; lastM = mk; }
       const names = d.cs.map(c => `<a href="#c/${c.id}">${esc(cleanName(c.placeName))}</a>${chipsOf(c)}`).join('、');
       if (d.ph.length) {
-        const firstPh = d.cs.find(c => vis[c.id].length);
-        h += `<div class="dcard"><a class="dc-ph n${Math.min(3, d.ph.length)}" href="#c/${firstPh.id}">${thumbs(d.ph, 3)}${d.ph.length > 3 ? `<span class="dc-more">+${d.ph.length - 3}</span>` : ''}</a><div class="dc-b"><p class="dc-d">${md2(d.ts)} <span>${wk(d.ts)}</span></p><p class="dc-pl">${names}</p></div></div>`;
-      } else h += `<div class="dline"><span class="dl-d">${md2(d.ts)}<small>${wk(d.ts)}</small></span><span class="dl-pl">${names}</span></div>`;
+        // 照片：1 整張、2 左右、3 一大兩小、4 田字格、5 張以上一整排左右滑（每張一樣大）
+        const n = d.ph.length, strip = n >= 5;
+        const phs = d.ph.map((m, i) => `<button class="dc-tile" data-dph="${d.k}" data-i="${i}" aria-label="看照片"><img src="${ou(m.thumb || m.blob)}" alt="" loading="lazy">${m.kind === 'video' ? `<span class="vbadge">${icon('play')}</span>` : ''}</button>`).join('');
+        // 地點：小時間軸，先顯示 3 個，其餘收起來
+        const rows = d.cs.map((c, i) => `<a class="dtl-row${i >= 3 ? ' more' : ''}" href="#c/${c.id}"><span class="dtl-t">${fmtTime(c.ts)}</span><span class="dtl-n">${esc(cleanName(c.placeName))}</span>${chipsOf(c)}</a>`).join('');
+        h += `<div class="dcard" data-day="${d.k}"><div class="dc-ph ${strip ? 'strip' : 'n' + n}">${phs}</div>
+          <div class="dc-b"><div class="dc-top"><p class="dc-d">${md2(d.ts)} <span>${wk(d.ts)}・${d.cs.length} 個地方</span></p><a class="dc-map" href="#map/day-${d.k}">${icon('map')}地圖</a></div>
+          <div class="dtl">${rows}</div>${d.cs.length > 3 ? `<button class="dtl-more" data-more="${d.k}">還有 ${d.cs.length - 3} 個地方 ${icon('back', 'dn')}</button>` : ''}</div></div>`;
+      } else h += `<div class="dline"><span class="dl-d">${md2(d.ts)}<small>${wk(d.ts)}</small></span><span class="dl-pl">${names}</span><a class="dc-map sm" href="#map/day-${d.k}" aria-label="在地圖上看這天">${icon('map')}</a></div>`;
     });
     $('#dlist').innerHTML = h;
     bindVchips($('#dlist'), allAud);
+    $('#dlist').querySelectorAll('[data-more]').forEach(b => b.onclick = () => { const card = b.closest('.dcard'); const open = card.classList.toggle('open'); b.innerHTML = open ? `收起 ${icon('back', 'up')}` : `還有 ${byK[b.dataset.more].cs.length - 3} 個地方 ${icon('back', 'dn')}`; });
+    $('#dlist').querySelectorAll('[data-dph]').forEach(b => b.onclick = () => { const d = byK[b.dataset.dph]; viewer(d.ph[+b.dataset.i], d.ph); });
   };
   // 「地方」：常去排行
   const drawPlaces = () => {
@@ -941,6 +949,21 @@ async function mapView(id) {
     peekPosition().then(p => { if (curMap === ctl) ctl.setMe(p); }).catch(() => { if (note && curMap === ctl) { note.className = 'mapnote'; note.innerHTML = `${icon('map')}<div><b>沒有拿到你的位置</b><p>請到 iPhone「設定 → 隱私權與安全性 → 定位服務 → Safari 網站」選「使用 App 期間」，再重新打開蜂采。</p></div>`; } });
   };
 
+  // ---- 日常的某一天：只看那天的地點，用淡淡的線依時間連起來 ----
+  if (id && id.startsWith('day-')) {
+    const k = id.slice(4);
+    let cs = [];
+    for (const t of (await store.listTrips()).filter(isDaily)) cs = cs.concat((await store.listCheckins(t.id)).filter(c => dayKey(c.ts) === k));
+    cs.sort((a, b) => a.ts - b.ts);
+    if (!cs.length) { location.hash = 'daily'; return; }
+    view.innerHTML = `<div class="row between"><h1 class="h1">採蜜地圖</h1><span class="muted sm">${cs.length} 個地點</span></div>
+      <div class="focuscard"><a class="btn sm" href="#daily" id="backall" aria-label="回日常">${icon('back')}日常</a><div><b>${fmtDate(cs[0].ts)}</b><small>這天的日常・${cs.length} 個地方</small></div></div>
+      <div id="mapbox"></div>${keyNote}`;
+    curMap = await mountMap($('#mapbox'), cs, { style: mapStyle(), height: fitH(250), seed: id, day: null, noPills: true, wantMe: true, onPick: c => { location.hash = `c/${c.id}`; } });
+    if (cs.length > 1) setTimeout(() => { try { curMap.connect(); } catch (e) {} }, 500);
+    showMe();
+    return;
+  }
   // ---- 只看這一趟 ----
   if (id) {
     const t = await store.getTrip(id);
@@ -1614,19 +1637,33 @@ function focusEditor(m) {
   });
 }
 
-function viewer(x) {
-  const u = URL.createObjectURL(x.blob);
+// 看照片／影片；給了 list 就可以左右滑看同一天的全部
+function viewer(x, list) {
+  const L = list && list.length ? list : [x];
+  let i = Math.max(0, L.indexOf(x)), u = null;
   const ov = document.createElement('div');
   ov.className = 'viewer';
-  ov.innerHTML = `${x.kind === 'video' ? `<video src="${u}" controls playsinline autoplay></video>` : `<img src="${u}" alt="">`}
-    <div class="viewer-bar"><button class="btn" data-a="close">關閉</button><button class="btn" data-a="focus">設定焦點</button><button class="btn danger" data-a="del">${icon('trash')}刪除</button></div>`;
+  const draw = () => {
+    if (u) URL.revokeObjectURL(u);
+    const m = L[i]; u = URL.createObjectURL(m.blob);
+    ov.innerHTML = `${m.kind === 'video' ? `<video src="${u}" controls playsinline autoplay></video>` : `<img src="${u}" alt="">`}
+      ${L.length > 1 ? `<button class="vw-nav prev" data-a="prev" aria-label="上一張" ${i === 0 ? 'hidden' : ''}>${icon('back')}</button><button class="vw-nav next" data-a="next" aria-label="下一張" ${i === L.length - 1 ? 'hidden' : ''}>${icon('back')}</button><p class="vw-count">${i + 1} / ${L.length}</p>` : ''}
+      <div class="viewer-bar"><button class="btn" data-a="close">關閉</button><button class="btn" data-a="focus">設定焦點</button><button class="btn danger" data-a="del">${icon('trash')}刪除</button></div>`;
+  };
+  draw();
   document.body.appendChild(ov);
-  const close = () => { ov.remove(); URL.revokeObjectURL(u); };
+  const close = () => { ov.remove(); if (u) URL.revokeObjectURL(u); };
+  const go = d => { const n = i + d; if (n < 0 || n >= L.length) return; i = n; draw(); };
+  let sx = null;
+  ov.addEventListener('touchstart', e => { sx = e.touches[0].clientX; }, { passive: true });
+  ov.addEventListener('touchend', e => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx; sx = null; if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1); });
   ov.onclick = async e => {
     const a = e.target.closest('[data-a]')?.dataset.a;
     if (a === 'close') close();
-    if (a === 'focus') { close(); if (await focusEditor(x)) rerender(); }
-    if (a === 'del' && (await confirmDlg('刪除這個檔案？', '刪除'))) { await store.deleteMedia(x.id); close(); rerender(); }
+    if (a === 'prev') go(-1);
+    if (a === 'next') go(1);
+    if (a === 'focus') { const m = L[i]; close(); if (await focusEditor(m)) rerender(); }
+    if (a === 'del' && (await confirmDlg('刪除這個檔案？', '刪除'))) { await store.deleteMedia(L[i].id); close(); rerender(); }
   };
 }
 
