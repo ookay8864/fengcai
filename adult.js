@@ -685,7 +685,7 @@ async function dailyView() {
       <div class="calhead"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="選擇年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></div>
       <div class="calgrid wk">${WKS.map(w => `<span>${w}</span>`).join('')}</div>
       <div class="calgrid" id="calgrid"></div>
-      <div class="callegend"><span><i class="lg-dot"></i>有打卡</span><span><i class="lg-dot ph"></i>有拍照</span><button class="linkbtn" id="caltoday">回到本月</button></div>
+      <div class="callegend"><span><i class="lg-dot ring"></i>有打卡</span><span><i class="lg-dot ph"></i>有拍照</span><button class="linkbtn" id="caltoday">回到本月</button></div>
     </section>
     <div id="dayopen"></div>
     ${cs.length ? `<div class="tl-top"><div class="seg dseg" role="group" aria-label="怎麼看"><button data-dm="days" class="${mode === 'days' ? 'on' : ''}">日子</button><button data-dm="places" class="${mode === 'places' ? 'on' : ''}">地方</button><button data-dm="map" class="${mode === 'map' ? 'on' : ''}">地圖</button></div></div>
@@ -1754,12 +1754,14 @@ async function settings() {
   $('#expall').onclick = async () => { if (await doBackup('all')) drawBk(); };
   $('#imp').onchange = async e => {
     const fs = [...e.target.files]; if (!fs.length) return;
-    let t = 0, c = 0, m = 0, bad = 0;
+    let t = 0, c = 0, m = 0, bad = 0, badItems = 0, why = '';
     for (const [i, f] of fs.entries()) {
-      toast(`還原中 ${i + 1}/${fs.length}…`);
-      try { const r = await store.importAll(f); t = Math.max(t, r.trips); c = Math.max(c, r.checkins); m += r.media; } catch (err) { bad++; }
+      toast(`還原中 ${i + 1}/${fs.length}…（照片影片多的話要等一下）`);
+      try { const r = await store.importAll(f); t = Math.max(t, r.trips); c = Math.max(c, r.checkins); m += r.media; badItems += r.bad || 0; why = why || r.err || ''; }
+      catch (err) { bad++; why = why || err.message; }
     }
-    toast(bad ? `還原完成，有 ${bad} 個檔案讀不進來` : `已還原 ${t} 個旅程、${c} 次打卡、${m} 個照片影片聲音`);
+    if (bad || badItems) await confirmDlg(`還原好了 ${t} 個旅程、${c} 次打卡、${m} 個照片影片聲音。${bad ? `有 ${bad} 個檔案整個讀不進來。` : ''}${badItems ? `有 ${badItems} 個照片影片聲音沒存進去。` : ''}${why ? `（原因：${why}）` : ''}`, '知道了', '');
+    else toast(`已還原 ${t} 個旅程、${c} 次打卡、${m} 個照片影片聲音`);
     drawBk();
   };
   $('#wipe').onclick = async () => {

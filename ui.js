@@ -32,7 +32,7 @@ function modal(inner) {
 
 export function confirmDlg(msg, ok = '確定', cancel = '取消') {
   return new Promise(res => {
-    const ov = modal(`<p class="dlg-msg">${esc(msg)}</p><div class="row end"><button class="btn" data-v="0">${esc(cancel)}</button><button class="btn main" data-v="1">${esc(ok)}</button></div>`);
+    const ov = modal(`<p class="dlg-msg">${esc(msg)}</p><div class="row end">${cancel ? `<button class="btn" data-v="0">${esc(cancel)}</button>` : ''}<button class="btn main" data-v="1">${esc(ok)}</button></div>`);
     ov.onclick = e => {
       const b = e.target.closest('[data-v]');
       if (b) { ov.remove(); res(b.dataset.v === '1'); }

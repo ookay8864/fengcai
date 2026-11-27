@@ -123,20 +123,30 @@ export const LocalStore = {
       base = hstart + hlen;
     } else data = JSON.parse(await file.text()); // 舊的 .json 備份
     if (data.app !== 'fengcai') throw new Error('這不是蜂采的備份檔');
-    const take = ref => (ref ? file.slice(base + ref[0], base + ref[0] + ref[1], ref[2]) : null);
-    const fromRef = async (x, k) => (x['_' + k[0]] !== undefined ? take(x['_' + k[0]]) : await dataToBlob(x[k]));
+    // iPhone Safari 不能把「檔案的一段」直接存進資料庫（會存失敗或之後變成問號），
+    // 所以每個照片、影片、聲音都先完整讀出來，再變成新的資料存進去
+    const take = async ref => (ref ? new Blob([await file.slice(base + ref[0], base + ref[0] + ref[1]).arrayBuffer()], { type: ref[2] || '' }) : null);
+    const fromRef = async (x, k) => (x['_' + k[0]] !== undefined ? await take(x['_' + k[0]]) : await dataToBlob(x[k]));
+    // 設定先還原（高德 Key、孩子），就算後面有東西失敗也不會少了設定
+    if (data.settings) importSettings(data.settings);
     for (const t of data.trips || []) await put('trips', t);
     for (const c of data.checkins || []) await put('checkins', c);
-    for (const m of data.media || []) { const { _b, _t, ...meta } = m; await put('media', { ...meta, blob: await fromRef(m, 'blob'), thumb: await fromRef(m, 'thumb') }); }
-    for (const c of data.capsules || []) {
-      const media = [];
-      for (const m of c.media || []) { const { _b, _t, ...meta } = m; media.push({ ...meta, blob: await fromRef(m, 'blob'), thumb: await fromRef(m, 'thumb') }); }
-      await put('capsules', { ...c, media });
+    let bad = 0, firstErr = '';
+    const okIds = [];
+    for (const m of data.media || []) {
+      try { const { _b, _t, ...meta } = m; await put('media', { ...meta, blob: await fromRef(m, 'blob'), thumb: await fromRef(m, 'thumb') }); okIds.push(m.id); }
+      catch (e) { bad++; firstErr = firstErr || e.message; }
     }
-    if (data.settings) importSettings(data.settings);
+    for (const c of data.capsules || []) {
+      try {
+        const media = [];
+        for (const m of c.media || []) { const { _b, _t, ...meta } = m; media.push({ ...meta, blob: await fromRef(m, 'blob'), thumb: await fromRef(m, 'thumb') }); }
+        await put('capsules', { ...c, media });
+      } catch (e) { bad++; firstErr = firstErr || e.message; }
+    }
     // 還原進來的東西都算已經備份過
-    markBacked((data.media || []).map(m => m.id), false, data.at);
-    return { trips: (data.trips || []).length, checkins: (data.checkins || []).length, media: (data.media || []).length };
+    markBacked(okIds, false, data.at);
+    return { trips: (data.trips || []).length, checkins: (data.checkins || []).length, media: okIds.length, bad, err: firstErr };
   },
   // 上次備份之後新增了多少
   async backupStatus() {

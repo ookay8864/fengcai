@@ -970,3 +970,8 @@ button.kfuture{border:0;font:inherit;cursor:pointer}
 .dc-ph.n1,.dc-ph.n2{grid-template-rows:minmax(0,1fr)}
 .dc-ph.n3{grid-template-rows:minmax(0,1fr) minmax(0,1fr)}
 .dc-ph img{min-height:0}
+/* v0.19.2：日常月曆：空心圈＝有打卡，實心點＝有拍照 */
+.cd.has-daily:not(.has-ph)::after{background:transparent!important;border:1.5px solid #C9A55A;width:7px;height:7px;margin-left:-3.5px;box-sizing:border-box}
+.cd.has-ph::after{width:7px!important;height:7px!important;margin-left:-3.5px!important;background:#B07A00!important}
+.lg-dot.ring{background:transparent;border:1.5px solid #C9A55A;box-sizing:border-box;width:8px;height:8px}
+.lg-dot.ph{width:8px;height:8px;background:#B07A00}
