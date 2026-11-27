@@ -87,6 +87,14 @@ export const LocalStore = {
   async listMedia(checkinId) { return (await byIdx('media', 'checkin', checkinId)).sort((a, b) => a.ts - b.ts); },
   getMedia: id => get('media', id),
   saveMedia: m => put('media', m),
+  // 改已經存好的檔案（精選、焦點…）：iPhone 把從資料庫讀出來的照片原樣存回去，照片會壞掉變成「?」，
+  // 所以先把照片和縮圖複製成新的一份再存
+  async updateMedia(m) {
+    const copy = async b => { if (!(b instanceof Blob)) return b; try { return new Blob([await b.arrayBuffer()], { type: b.type }); } catch (e) { return b; } };
+    const x = { ...m, blob: await copy(m.blob), thumb: await copy(m.thumb) };
+    await put('media', x);
+    m.blob = x.blob; m.thumb = x.thumb;
+  },
   deleteMedia: id => del('media', id),
 
   // 時光膠囊：內容（照片、影片、聲音）直接放在膠囊裡

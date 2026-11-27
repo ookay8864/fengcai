@@ -184,7 +184,7 @@ export async function makeVideo(data, opt, ui) {
     const ms = await store.listMedia(c.id);
     const sel = selectVisuals(ms);
     for (const m of sel) {
-      if (!m.w && (m.kind === 'photo' || m.thumb)) { const d = await blobDims(m.kind === 'photo' ? m.blob : m.thumb); if (d) { m.w = d.w; m.h = d.h; store.saveMedia(m); } }
+      if (!m.w && (m.kind === 'photo' || m.thumb)) { const d = await blobDims(m.kind === 'photo' ? m.blob : m.thumb); if (d) { m.w = d.w; m.h = d.h; store.updateMedia(m); } }
     }
     const items = layoutItems(c, sel, opt);
     for (const it of items) {

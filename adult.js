@@ -720,7 +720,7 @@ async function dailyView() {
     $('#dlist').innerHTML = h;
     bindVchips($('#dlist'), allAud);
     $('#dlist').querySelectorAll('[data-more]').forEach(b => b.onclick = () => { const card = b.closest('.dcard'); const open = card.classList.toggle('open'); b.innerHTML = open ? `收起 ${icon('back', 'up')}` : `還有 ${byK[b.dataset.more].cs.length - 3} 個地方 ${icon('back', 'dn')}`; });
-    $('#dlist').querySelectorAll('[data-dph]').forEach(b => b.onclick = () => { const d = byK[b.dataset.dph]; viewer(d.ph[+b.dataset.i], d.ph); });
+    $('#dlist').querySelectorAll('[data-dph]').forEach(b => b.onclick = () => { const d = byK[b.dataset.dph]; viewer(d.ph[+b.dataset.i], d.ph, { oneStar: true }); });
     // 左右滑的那一排：右下角「+N」＝右邊還有幾張沒看到
     $('#dlist').querySelectorAll('.dc-ph.strip').forEach(st => {
       const badge = st.parentElement.querySelector('.dc-left'), n = st.children.length;
@@ -1148,7 +1148,7 @@ async function videoView(id) {
       const vis = ms.filter(m => m.kind !== 'audio');
       const sel = selectVisuals(ms), selIds = new Set(sel.map(m => m.id));
       const au = ms.filter(m => m.kind === 'audio').sort((a, b) => (a.by === 'kid' ? 0 : 1) - (b.by === 'kid' ? 0 : 1) || a.ts - b.ts)[0];
-      if (au && !au.dur) { const d = await audioDur(au.blob); if (d) { au.dur = d; await store.saveMedia(au); } }
+      if (au && !au.dur) { const d = await audioDur(au.blob); if (d) { au.dur = d; await store.updateMedia(au); } }
       const items = layoutItems(c, sel, opt);
       const d = stopDuration(items, au && opt.voices && c.vVoice !== false ? voiceLen(c, au) : 0);
       const landAuto = sel.filter(m => m.kind === 'photo' && isLand(m) && (!m.layout || m.layout === 'auto')).length;
@@ -1180,22 +1180,22 @@ async function videoView(id) {
       const vis = ms.filter(m => m.kind !== 'audio'), selIds = new Set(selectVisuals(ms).map(m => m.id));
       const m = vis.find(x => x.id === b.dataset.sel);
       // 第一次手動調整：把這站目前的選擇固定下來，避免自動補上別張
-      for (const x of vis) { const want = selIds.has(x.id); if (x.vid !== want) { x.vid = want; await store.saveMedia(x); } }
+      for (const x of vis) { const want = selIds.has(x.id); if (x.vid !== want) { x.vid = want; await store.updateMedia(x); } }
       if (selIds.has(m.id)) m.vid = false;
       else if (selIds.size >= PER_STOP) { toast(`每站最多 ${PER_STOP} 個，請先拿掉一個`); return; }
       else m.vid = true;
-      await store.saveMedia(m);
+      await store.updateMedia(m);
       renderVList();
     });
     L.querySelectorAll('[data-lay]').forEach(b => b.onclick = async () => {
       const fresh = await store.getMedia(b.dataset.lay);
       const order = isLand(fresh) ? ['auto', 'pan', 'card', 'zoom'] : ['auto', 'card', 'zoom'];
       fresh.layout = order[(order.indexOf(fresh.layout || 'auto') + 1) % order.length];
-      await store.saveMedia(fresh);
+      await store.updateMedia(fresh);
       renderVList();
     });
     L.querySelectorAll('[data-foc]').forEach(b => b.onclick = async () => { const m = await store.getMedia(b.dataset.foc); if (await focusEditor(m)) renderVList(); });
-    L.querySelectorAll('[data-reset]').forEach(b => b.onclick = async () => { for (const m of await store.listMedia(b.dataset.reset)) if (m.vid != null) { delete m.vid; await store.saveMedia(m); } renderVList(); });
+    L.querySelectorAll('[data-reset]').forEach(b => b.onclick = async () => { for (const m of await store.listMedia(b.dataset.reset)) if (m.vid != null) { delete m.vid; await store.updateMedia(m); } renderVList(); });
     const setFlag = async (id, fn) => { const c = await store.getCheckin(id); fn(c); await store.saveCheckin(c); const local = getC(id); for (const k of ['vVoice', 'vStack', 'vTrim']) { if (k in c) local[k] = c[k]; else delete local[k]; } renderVList(); };
     L.querySelectorAll('[data-voice]').forEach(i => i.onchange = () => setFlag(i.dataset.voice, c => { if (i.checked) delete c.vVoice; else c.vVoice = false; }));
     L.querySelectorAll('[data-stack]').forEach(i => i.onchange = () => setFlag(i.dataset.stack, c => { if (i.checked) delete c.vStack; else c.vStack = false; }));
@@ -1594,7 +1594,7 @@ async function checkin(id) {
     btn.setAttribute('aria-pressed', x.star ? 'true' : 'false');
     btn.closest('.tile').classList.toggle('star', x.star);
     toast(x.star ? '已設為精選' : '已取消精選');
-    await store.saveMedia(x);
+    await store.updateMedia(x);
   });
   view.querySelectorAll('[data-v]').forEach(btn => btn.onclick = () => viewer(vis.find(v => v.id === btn.dataset.v)));
   view.querySelectorAll('[data-d]').forEach(btn => btn.onclick = async () => { if (await confirmDlg('刪除這段聲音？', '刪除')) { await store.deleteMedia(btn.dataset.d); rerender(); } });
@@ -1638,7 +1638,7 @@ function focusEditor(m) {
     ov.querySelector('[data-a="clear"]').onclick = () => { f = null; show(); };
     ov.querySelector('[data-a="ok"]').onclick = async () => {
       if (f) m.focus = f; else delete m.focus;
-      await store.saveMedia(m);
+      await store.updateMedia(m);
       ov.remove(); URL.revokeObjectURL(u);
       toast(f ? '已設定焦點' : '已清除焦點');
       res(true);
@@ -1647,33 +1647,47 @@ function focusEditor(m) {
 }
 
 // 看照片／影片；給了 list 就可以左右滑看同一天的全部
-function viewer(x, list) {
+// opt.oneStar：日常用，一天只能有一張精選，點新的星星就換掉舊的
+function viewer(x, list, opt = {}) {
   const L = list && list.length ? list : [x];
-  let i = Math.max(0, L.indexOf(x)), u = null;
+  let i = Math.max(0, L.indexOf(x)), u = null, changed = false;
   const ov = document.createElement('div');
-  ov.className = 'viewer';
+  ov.className = 'viewer vw2';
   const draw = () => {
     if (u) URL.revokeObjectURL(u);
     const m = L[i]; u = URL.createObjectURL(m.blob);
-    ov.innerHTML = `${m.kind === 'video' ? `<video src="${u}" controls playsinline autoplay></video>` : `<img src="${u}" alt="">`}
-      ${L.length > 1 ? `<button class="vw-nav prev" data-a="prev" aria-label="上一張" ${i === 0 ? 'hidden' : ''}>${icon('back')}</button><button class="vw-nav next" data-a="next" aria-label="下一張" ${i === L.length - 1 ? 'hidden' : ''}>${icon('back')}</button><p class="vw-count">${i + 1} / ${L.length}</p>` : ''}
-      <div class="viewer-bar"><button class="btn" data-a="close">關閉</button>${m.kind === 'audio' ? '' : `<button class="btn${m.star ? ' main' : ''}" data-a="star">${icon('star')}${m.star ? '已精選' : '設為精選'}</button>`}<button class="btn" data-a="focus">設定焦點</button><button class="btn danger" data-a="del">${icon('trash')}刪除</button></div>`;
+    const many = L.length > 1;
+    ov.innerHTML = `<div class="vw-stage">${m.kind === 'video' ? `<video src="${u}" controls playsinline autoplay></video>` : `<img src="${u}" alt="">`}</div>
+      <div class="vw-top"><button class="vw-ic" data-a="close" aria-label="關閉">${icon('close')}</button>${many ? `<p class="vw-cnt">${i + 1} / ${L.length}</p>` : '<span></span>'}<button class="vw-ic" data-a="more" aria-label="更多">${icon('more')}</button></div>
+      <div class="vw-menu" hidden>${m.kind === 'audio' ? '' : `<button data-a="focus">${icon('focus')}設定焦點</button>`}<button data-a="del" class="danger">${icon('trash')}刪除</button></div>
+      ${many ? `<button class="vw-nav prev" data-a="prev" aria-label="上一張" ${i === 0 ? 'hidden' : ''}>${icon('back')}</button><button class="vw-nav next" data-a="next" aria-label="下一張" ${i === L.length - 1 ? 'hidden' : ''}>${icon('back')}</button>` : ''}
+      <div class="vw-bot">${m.kind === 'audio' ? '' : `<button class="vw-star${m.star ? ' on' : ''}" data-a="star" aria-pressed="${m.star ? 'true' : 'false'}" aria-label="${m.star ? '取消精選' : '設為精選'}">${icon(m.star ? 'star' : 'star-o')}</button>`}
+        ${many && L.length <= 12 ? `<div class="vw-dots">${L.map((_, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('')}</div>` : ''}</div>`;
   };
-  let changed = false;
   draw();
   document.body.appendChild(ov);
+  const menu = () => ov.querySelector('.vw-menu');
   const close = () => { ov.remove(); if (u) URL.revokeObjectURL(u); if (changed) rerender(); };
   const go = d => { const n = i + d; if (n < 0 || n >= L.length) return; i = n; draw(); };
   let sx = null;
   ov.addEventListener('touchstart', e => { sx = e.touches[0].clientX; }, { passive: true });
-  ov.addEventListener('touchend', e => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx; sx = null; if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1); });
+  ov.addEventListener('touchend', e => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx; sx = null; if (Math.abs(dx) > 50 && menu().hidden) go(dx < 0 ? 1 : -1); });
   ov.onclick = async e => {
     const a = e.target.closest('[data-a]')?.dataset.a;
+    if (!menu().hidden && a !== 'more') { menu().hidden = true; if (!a || a === 'prev' || a === 'next' || a === 'star') return; }
     if (a === 'close') close();
+    if (a === 'more') menu().hidden = !menu().hidden;
     if (a === 'prev') go(-1);
     if (a === 'next') go(1);
-    if (a === 'star') { const m = L[i]; m.star = !m.star; await store.saveMedia(m); changed = true; toast(m.star ? '設為精選，會排在最前面' : '取消精選'); draw(); }
-    if (a === 'focus') { const m = L[i]; close(); if (await focusEditor(m)) rerender(); }
+    if (a === 'star') {
+      const m = L[i]; m.star = !m.star;
+      if (m.star && opt.oneStar) for (const o of L) if (o !== m && o.star) { o.star = false; await store.updateMedia(o); }
+      await store.updateMedia(m); changed = true;
+      toast(m.star ? (opt.oneStar ? '已設為這天的精選，會排在第一張' : '已設為精選') : '已取消精選');
+      draw();
+      if (m.star) ov.querySelector('.vw-star')?.classList.add('pop');
+    }
+    if (a === 'focus') { const m = L[i]; ov.remove(); if (u) URL.revokeObjectURL(u); if ((await focusEditor(m)) || changed) rerender(); }
     if (a === 'del' && (await confirmDlg('刪除這個檔案？', '刪除'))) { await store.deleteMedia(L[i].id); close(); rerender(); }
   };
 }
