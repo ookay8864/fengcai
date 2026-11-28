@@ -1023,7 +1023,7 @@ function footStats(cs, kind, nTrips = 0) {
   Object.values(seg).forEach(L => { L.sort((a, b) => a.ts - b.ts); for (let i = 1; i < L.length; i++) m += distM(L[i - 1], L[i]); });
   const km = m / 1000, kmTxt = km < 10 ? km.toFixed(1) : Math.round(km).toLocaleString();
   const together = places.filter(p => isKid(p) && isAdult(p)).length;
-  const tiles = [...(kind === 'trips' ? [[nTrips, '趟旅程']] : []), [places.length, '個地方'], ['…', '個城市', 'id="stcity"'], [kmTxt, '公里']];
+  const tiles = [...(kind === 'trips' ? [[nTrips, '趟旅程']] : []), [places.length, '個地方'], ['…', '個城市', 'id="stcity"'], [kmTxt, '公里<small class="fkm">直線距離</small>']];
   const top = kind === 'daily' ? places.filter(p => p.lat != null).sort((a, b) => (b._n || 1) - (a._n || 1) || b.ts - a.ts).slice(0, 3) : [];
   return `<div class="stats fstats" style="grid-template-columns:repeat(${tiles.length},minmax(0,1fr))">${tiles.map(([n, l, a]) => `<div><b ${a || ''}>${n}</b>${l}</div>`).join('')}</div>
     ${together ? `<p class="ftog">${mkIcon({ adult: true, kid: true }, 30)}<span>孩子也一起去的地方 <b>${together}</b> 個</span></p>` : ''}
