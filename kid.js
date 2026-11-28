@@ -1,9 +1,9 @@
 // 蜂采 兒童頁面：小小打卡官
-import { CONFIG } from './config.js';
+import { CONFIG, getSetting, setSetting } from './config.js';
 import { store, ensureActiveTrip, askPersist, isKid, findMergeTarget } from './store.js';
-import { getPosition, nearby, badgeOf, BADGES, isDemo, distM } from './geo.js';
+import { getPosition, nearby, searchPlaces, testAMap, badgeOf, BADGES, isDemo, distM } from './geo.js';
 import { startRecorder } from './media.js';
-import { $, esc, uid, icon, fmtDate, dayKey } from './ui.js';
+import { $, esc, uid, icon, fmtDate, fmtTime, dayKey } from './ui.js';
 import { allThemes, getTheme, guessTheme, themeIcon } from './themes.js';
 import { gardenSVG } from './map.js';
 import { loadBee, beeSVG } from './bee.js';
@@ -11,6 +11,7 @@ import { compressImage, videoThumb } from './media.js';
 import { kidFromUrl, isKidOf, colorHex, KID_LIMITS, FEELS, QUESTIONS } from './kids.js';
 import { BUDDY_THEMES, themeOfKid, buddyList, buddySVG, buddyName, collected, nextBuddy } from './buddies.js';
 import { hexCell } from './capsule.js';
+import { unsent, packForParent, everSent, forgetSent } from './kidsync.js';
 
 const k = $('#k');
 let ctx = null, curRec = null, recTimer = null;
@@ -58,7 +59,7 @@ async function idle() {
   await stopRec();
   const t = await ensureActiveTrip();
   const n = (await store.listCheckins(t.id)).filter(mine).length;
-  k.innerHTML = `<header class="ktop"><img src="./logo.svg" class="klogo" alt=""><span class="kname">${esc(myName)}</span><button class="kbook" id="gd">${block ? buddySVG('block', 0, 'kbtn-ic') : icon('flower')}${esc(TH.world)}</button><button class="kbook" id="book">${icon('honey')}${big ? '我的足跡' : '章本'} <b>${n}</b></button></header>
+  k.innerHTML = `<header class="ktop"><button class="kme" id="kme" aria-label="我的小蜂窩">${beeSVG('kme-bee')}${big && (await pending()).length ? `<i class="kme-n">${(await pending()).length}</i>` : ''}</button><span class="kname">${esc(myName)}</span><button class="kbook" id="gd">${block ? buddySVG('block', 0, 'kbtn-ic') : icon('flower')}${esc(TH.world)}</button><button class="kbook" id="book">${icon('honey')}${big ? '我的足跡' : '章本'} <b>${n}</b></button></header>
     <section class="kcenter">
       <button class="kstamp" id="stamp">${beeSVG('huge')}<span>按我蓋章！</span></button>
       <p class="ktip">到了新地方，碰一下吊飾，再按上面的大按鈕</p>
@@ -68,6 +69,7 @@ async function idle() {
     <button class="kfuture" id="kcap"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l8 4.6v9.8l-8 4.6-8-4.6V7.1z" fill="var(--cap-wax)" stroke="var(--cap-rim)" stroke-width="1.6"/></svg>給未來的自己</button>
     ${big ? '' : '<a class="kadult" href="index.html">大人頁面</a>'}`;
   $('#stamp').onclick = go;
+  $('#kme').onclick = () => (big ? meMenu() : book());
   $('#book').onclick = book;
   $('#gd').onclick = () => garden();
   $('#kcap').onclick = capHome;
@@ -148,7 +150,7 @@ async function stampHead(c) {
     <p class="kbudname">${idx != null ? (isNew ? `新夥伴：<b>${esc(buddyName(theme, idx))}</b>` : `又遇到 <b>${esc(buddyName(theme, idx))}</b> 了！`) : ''}</p>
     <p class="kbig">今天第 ${tn} 站</p>
     <p class="kplace">${esc(c.placeName.replace(/（模擬）/, ''))}</p>
-    <button class="klink" id="kfix">地點不對？</button>`;
+    <button class="kfixbtn" id="kfix">${icon('pin')}地點不對？改一下</button>`;
 }
 async function result(c, n) {
   if (big) return bigResult(c, n);
@@ -226,6 +228,7 @@ async function book() {
     ${kids.length ? '<p class="ktip sm" style="text-align:center">地點不對或蓋錯了？點那個章就可以改或刪掉</p>' : '<p class="ktip" style="text-align:center">還沒有章，快去蓋第一個！</p>'}`;
   $('#home').onclick = idle;
   $('#dex').onclick = () => dex(book);
+  k.querySelectorAll('[data-sv]').forEach(bt => bt.onclick = () => statView(bt.dataset.sv, kids));
   k.querySelectorAll('[data-c]').forEach(bt => bt.onclick = () => { const c = kids.find(x => x.id === bt.dataset.c); if (c) stampMenu(c); });
 }
 // 點一個章：改地點、刪掉
@@ -263,23 +266,55 @@ async function removeMine(c) {
 async function fixPlace(c, back) {
   await stopRec();
   if (c.adult) { toastKid('這一站是和爸媽一起的，請爸媽幫忙改'); return; }
-  if (c.lat == null) { toastKid('這個章沒有位置，沒辦法改'); return; }
-  k.innerHTML = `<section class="kcenter"><div class="kfly">${beeSVG('huge')}</div><p class="kbig">小蜜蜂在找附近的地方…</p></section>`;
-  let list = [];
-  try { list = await nearby(c.lat, c.lng); } catch (e) {}
-  list = list.sort((a, b) => (a.dist || 0) - (b.dist || 0)).filter(p => p.name !== c.placeName).slice(0, 5);
-  k.innerHTML = `<section class="kcenter" style="justify-content:flex-start">
+  const near = c.lat != null ? { lat: c.lat, lng: c.lng } : null;
+  k.innerHTML = `<header class="ktop"><button class="kbtn ghost" id="kno" style="min-height:46px;font-size:17px">${icon('back')}不用改</button></header>
+    <section class="kcenter" style="justify-content:flex-start;padding-top:4px">
     <p class="kbig">你在哪裡呢？</p><p class="ktip">現在是：${esc(c.placeName.replace(/（模擬）/, ''))}</p>
-    <div class="kplaces">${list.map((p, i) => `<button class="kpl" data-i="${i}">${icon('pin')}<span>${esc(p.name.replace(/（模擬）/, ''))}</span>${p.dist != null ? `<small>${Math.round(p.dist)} 公尺</small>` : ''}</button>`).join('') || '<p class="ktip">附近找不到其他地方</p>'}</div>
-    <div class="krow"><button class="kbtn ghost" id="kno">不用改</button></div></section>`;
+    <label class="ksearch">${icon('search')}<input id="kq" type="search" placeholder="找找看：公園、餐廳…" enterkeyhint="search" autocomplete="off"></label>
+    <p class="ktip sm" id="kqt">附近的地方</p>
+    <div class="kplaces" id="kpl"><p class="ktip">小蜜蜂在找附近的地方…</p></div></section>`;
   $('#kno').onclick = back;
-  k.querySelectorAll('[data-i]').forEach(bt => bt.onclick = async () => {
-    const p = list[+bt.dataset.i];
+  let list = [], seq = 0;
+  const draw = (arr, empty) => {
+    list = arr;
+    $('#kpl').innerHTML = arr.map((p, i) => `<button class="kpl" data-i="${i}">${icon('pin')}<span>${esc(p.name.replace(/（模擬）/, ''))}${p.address ? `<em>${esc(p.address)}</em>` : ''}</span>${p.dist != null ? `<small>${p.dist < 1000 ? Math.round(p.dist) + ' 公尺' : (p.dist / 1000).toFixed(1) + ' 公里'}</small>` : ''}</button>`).join('') || `<p class="ktip">${empty}</p>`;
+    k.querySelectorAll('[data-i]').forEach(bt => bt.onclick = () => confirmPlace(c, list[+bt.dataset.i], back, () => fixPlace(c, back)));
+  };
+  let nearList = [];
+  if (near) { try { nearList = (await nearby(near.lat, near.lng)).sort((a, b) => (a.dist || 0) - (b.dist || 0)).filter(p => p.name !== c.placeName).slice(0, 5); } catch (e) {} }
+  if (!$('#kq')) return;
+  if (!$('#kq').value.trim()) draw(nearList, '附近找不到其他地方，在上面打字找找看');
+  let tm = null;
+  $('#kq').oninput = () => {
+    clearTimeout(tm);
+    const kw = $('#kq').value.trim();
+    if (kw.length < 2) { $('#kqt').textContent = '附近的地方'; draw(nearList, '附近找不到其他地方，在上面打字找找看'); return; }
+    tm = setTimeout(async () => {
+      const my = ++seq;
+      $('#kqt').textContent = '找找看…';
+      let r = [];
+      try { r = await searchPlaces(kw, near); } catch (e) {}
+      if (my !== seq) return;
+      $('#kqt').textContent = r.length ? `找到 ${Math.min(r.length, 8)} 個地方` : '';
+      draw(r.slice(0, 8), '找不到，換個字試試看');
+    }, 450);
+  };
+}
+// 改成這裡？再問一次，按「好」才改
+function confirmPlace(c, p, back, again) {
+  k.innerHTML = `<section class="kcenter">
+    <div class="kfly">${beeSVG('huge')}</div>
+    <p class="ktip">改成這裡嗎？</p><p class="kbig">${esc(p.name.replace(/（模擬）/, ''))}</p>
+    ${p.address ? `<p class="ktip sm">${esc(p.address)}</p>` : ''}
+    <div class="kcol"><button class="kbtn main" id="kok">${icon('check')}好</button><button class="kbtn ghost" id="kag">不要</button></div></section>`;
+  $('#kag').onclick = again;
+  $('#kok').onclick = async () => {
     Object.assign(c, { placeName: p.name, placeType: p.type || '', poiId: p.id || '' });
+    if (p.lat != null && p.lng != null) { c.lat = p.lat; c.lng = p.lng; }
     await store.saveCheckin(c);
     toastKid('改好了！');
     back();
-  });
+  };
 }
 
 // ---------- 夥伴圖鑑 ----------
@@ -524,7 +559,108 @@ async function myStats(kids) {
   let ph = 0, au = 0;
   for (const c of kids) { const ms = await myMedia(c); ph += ms.filter(m => m.kind !== 'audio').length; au += ms.filter(m => m.kind === 'audio').length; }
   const fav = kids.filter(c => ((c.kidRate || {})[kidKey()] || {}).s === 3).length;
-  return `<div class="kstats"><span><b>${kids.length}</b>個章</span><span><b>${ph}</b>張照片和影片</span><span><b>${au}</b>句話</span><span><b>${fav}</b>個三顆星</span></div>`;
+  return `<div class="kstats"><button data-sv="stamps"><b>${kids.length}</b>個章</button><button data-sv="media"><b>${ph}</b>張照片和影片</button><button data-sv="voice"><b>${au}</b>句話</button><button data-sv="star"><b>${fav}</b>個三顆星</button></div>`;
+}
+
+// ---------- 大童：點左上角的蜜蜂＝我的小蜂窩（傳給爸媽、足跡、備份、地圖設定） ----------
+const pending = async () => unsent(await allMine(), myMedia);
+const kHead = (back = '回去') => `<header class="ktop"><button class="kbtn ghost" id="home" style="min-height:46px;font-size:17px">${icon('back')}${back}</button></header>`;
+async function meMenu() {
+  await stopRec();
+  const n = (await pending()).length, noMap = !getSetting('amapKey');
+  k.innerHTML = `${kHead()}<section class="kcenter" style="justify-content:flex-start">
+    <div class="kme-big">${beeSVG('huge')}</div><p class="kbig">${esc(myName)}的小蜂窩</p>
+    <div class="kcol">
+      ${n ? `<button class="kbtn main" id="tosend">${icon('honey')}傳給爸媽（${n} 站）</button>` : `<p class="ktip sm" style="text-align:center;max-width:none">${everSent() ? '都傳給爸媽了 ✓' : '還沒有要傳的章'}</p>`}
+      <button class="kbtn" id="bk">${icon('honey')}我的足跡</button>
+      <button class="kbtn ghost" id="kbak">${icon('check')}備份到檔案</button>
+    </div>
+    ${noMap ? '<p class="ktip sm" style="margin-top:16px;text-align:center">地點常常不對？</p>' : ''}
+    <button class="klink" id="kmap">請爸媽幫忙設定地圖</button>
+    ${n || !everSent() ? '' : '<button class="klink" id="resend">全部再傳一次</button>'}
+  </section>`;
+  $('#home').onclick = idle;
+  $('#bk').onclick = book;
+  if ($('#tosend')) $('#tosend').onclick = sendToParent;
+  if ($('#resend')) $('#resend').onclick = () => { forgetSent(); meMenu(); };
+  $('#kbak').onclick = backupFile;
+  $('#kmap').onclick = mapSetup;
+}
+const saveAs = file => { const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); };
+async function shareFile(file) {
+  try {
+    if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: file.name });
+    else saveAs(file);
+    return true;
+  } catch (e) { if (e.name !== 'AbortError') { saveAs(file); return true; } return false; }
+}
+async function sendToParent() {
+  const list = await pending(); if (!list.length) return;
+  const bt = $('#tosend'); if (bt) { bt.disabled = true; bt.textContent = '打包中…'; }
+  const { file, done } = await packForParent(me, list);
+  if (await shareFile(file)) done();
+  meMenu();
+}
+// 這支手機的完整備份（跟大人頁的備份同一種檔案）
+async function backupFile() {
+  const bt = $('#kbak'); if (bt) { bt.disabled = true; bt.textContent = '打包中…'; }
+  try {
+    const { blob, ids } = await store.exportAll('all');
+    const d = new Date(), file = new File([blob], `蜂采備份-${(myName).replace(/[\\/:*?"<>|]/g, '')}-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.fcbak`, { type: 'application/octet-stream' });
+    if (await shareFile(file)) { await store.markBackup(ids, true); toastKid('備份好了！'); }
+  } catch (e) { toastKid('備份失敗：' + e.message); }
+  meMenu();
+}
+// 地圖設定：孩子的手機也要填高德 Key，才找得到正確的地點（請爸媽填）
+function mapSetup() {
+  k.innerHTML = `${kHead()}<section class="kcenter" style="justify-content:flex-start">
+    <p class="kbig">地圖設定</p>
+    <p class="ktip sm" style="max-width:none">請爸媽填：跟爸媽手機「設定 → 高德地圖」一樣的 Key 和安全密鑰。填了以後，在中國大陸會用高德找地點，比較準。</p>
+    <div class="kform"><label>Key<input id="ak" value="${esc(getSetting('amapKey'))}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <label>安全密鑰<input id="as" value="${esc(getSetting('amapSec'))}" autocomplete="off" autocapitalize="off" spellcheck="false"></label></div>
+    <p class="ktip sm" id="kres" style="max-width:none"></p>
+    <div class="krow"><button class="kbtn main" id="ksave">${icon('check')}儲存</button><button class="kbtn" id="ktest">測試</button></div></section>`;
+  $('#home').onclick = meMenu;
+  $('#ksave').onclick = () => { setSetting('amapKey', $('#ak').value.trim()); setSetting('amapSec', $('#as').value.trim()); toastKid('存好了！'); setTimeout(() => location.reload(), 900); };
+  $('#ktest').onclick = async () => {
+    if ($('#ak').value.trim() !== getSetting('amapKey') || $('#as').value.trim() !== getSetting('amapSec')) { $('#kres').textContent = '請先按「儲存」，再按「測試」。'; return; }
+    $('#kres').textContent = '測試中…';
+    const r = await testAMap(); $('#kres').textContent = (r.ok ? '✓ ' : '✗ ') + (r.msg || (r.ok ? '可以用了！' : '不能用'));
+  };
+}
+
+// ---------- 足跡的四個數字點進去看 ----------
+const stars = c => { const s = ((c.kidRate || {})[kidKey()] || {}).s || 0; return s ? `<span class="kst">${'★'.repeat(s)}<i>${'★'.repeat(3 - s)}</i></span>` : ''; };
+const byDay = arr => { const o = []; for (const x of arr) { const d = fmtDate(x.ts); let g = o.find(y => y.d === d); if (!g) o.push(g = { d, items: [] }); g.items.push(x); } return o; };
+async function statView(type, kids) {
+  await stopRec();
+  const title = { stamps: '我的章', media: '照片和影片', voice: '我說的話', star: '三顆星的地方' }[type];
+  let body = '', ms = [];
+  if (type === 'stamps' || type === 'star') {
+    const list = type === 'star' ? kids.filter(c => ((c.kidRate || {})[kidKey()] || {}).s === 3) : kids;
+    const rows = [];
+    for (const c of list) { const m = await myMedia(c); rows.push({ c, ts: c.kidTs || c.ts, n: m.filter(x => x.kind !== 'audio').length }); }
+    body = byDay(rows).map(g => `<p class="kday">${esc(g.d)}</p>${g.items.map(r => `<button class="kpl" data-c="${r.c.id}">${icon('pin')}<span>${esc(r.c.placeName.replace(/（模擬）/, ''))}<em>${fmtTime(r.ts)}${r.n ? `・${r.n} 張照片` : ''}</em></span>${stars(r.c)}</button>`).join('')}`).join('') || '<p class="ktip">還沒有</p>';
+  } else {
+    for (const c of kids) for (const m of await myMedia(c)) if ((type === 'voice') === (m.kind === 'audio')) ms.push({ ...m, place: c.placeName.replace(/（模擬）/, ''), ts: m.ts || c.ts });
+    ms.sort((a, b) => a.ts - b.ts);
+    body = byDay(ms).map(g => `<p class="kday">${esc(g.d)}</p>` + (type === 'media'
+      ? `<div class="kgrid">${g.items.map(m => `<button class="kgi" data-m="${ms.indexOf(m)}">${m.thumb ? `<img src="${URL.createObjectURL(m.thumb)}" alt="">` : ''}${m.kind === 'video' ? `<span class="kvb">${icon('play')}</span>` : ''}</button>`).join('')}</div>`
+      : g.items.map(m => `<div class="kvoice"><b>${esc(m.place)}</b><audio controls preload="none" src="${URL.createObjectURL(m.blob)}"></audio></div>`).join(''))).join('') || '<p class="ktip">還沒有</p>';
+  }
+  k.innerHTML = `<header class="ktop"><button class="kbtn ghost" id="home" style="min-height:46px;font-size:17px">${icon('back')}回去</button><span class="kname" style="text-align:right">${title}</span></header>
+    <section class="klist">${body}</section>`;
+  $('#home').onclick = book;
+  k.querySelectorAll('[data-c]').forEach(bt => bt.onclick = () => { const c = kids.find(x => x.id === bt.dataset.c); if (c) stampMenu(c); });
+  k.querySelectorAll('[data-m]').forEach(bt => bt.onclick = () => bigView(ms[+bt.dataset.m]));
+}
+// 放大看一張照片或影片，點一下收起來
+function bigView(m) {
+  const u = URL.createObjectURL(m.blob), ov = document.createElement('div');
+  ov.className = 'kview';
+  ov.innerHTML = `${m.kind === 'video' ? `<video src="${u}" controls playsinline autoplay></video>` : `<img src="${u}" alt="">`}<p>${esc(m.place)}・${fmtDate(m.ts)}</p><button class="kbtn" aria-label="關閉">${icon('close')}收起來</button>`;
+  ov.onclick = e => { if (e.target.closest('video')) return; ov.remove(); URL.revokeObjectURL(u); };
+  document.body.appendChild(ov);
 }
 
 await loadBee();

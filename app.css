@@ -1076,3 +1076,41 @@ body:has(.vw2) .toast{bottom:calc(env(safe-area-inset-bottom) + 120px)}
 .pv-pill.main{background:var(--hive);color:#fff}
 .pv-pill .ic{width:18px;height:18px}
 body:has(.pv) .toast{bottom:calc(env(safe-area-inset-bottom) + 150px)}
+
+/* v0.22.0 收孩子的打卡 */
+.krecv-row{display:flex;justify-content:center;margin:-6px 0 8px}
+.krecv{display:inline-flex;align-items:center;gap:6px;margin:0}
+.krecv .ic,.krecv svg{width:18px;height:18px}
+.kr-day{margin:12px 0 4px;font-weight:800;font-size:14px;color:var(--honey-deep)}
+.kr-n{display:inline-flex;align-items:center;gap:2px;font-size:12px;opacity:.7}
+.kr-n svg{width:14px;height:14px}
+.ksent-re{border:0;background:none;color:inherit;text-decoration:underline;font:inherit;cursor:pointer;padding:4px}
+
+/* v0.22.0 孩子頁：小蜂窩、改地點搜尋、足跡數字 */
+.kme{width:48px;height:48px;padding:0;border:0;background:#fff;border-radius:50%;display:grid;place-items:center;box-shadow:0 3px 0 rgba(0,0,0,.1);cursor:pointer;flex:none}
+.kme .kme-bee{width:38px;height:38px}
+.kme-big .ic{width:96px;height:96px}
+.kfixbtn{display:inline-flex;align-items:center;gap:6px;margin-top:6px;min-height:42px;padding:0 16px;border-radius:99px;border:2.5px solid var(--kc,var(--honey-deep));background:#fff;color:var(--kid-ink);font:800 16px var(--font);cursor:pointer}
+.kfixbtn .ic{width:20px;height:20px;color:var(--kc,var(--honey-deep))}
+.ksearch{display:flex;align-items:center;gap:8px;width:100%;margin:14px 0 4px;padding:0 16px;min-height:58px;border-radius:99px;border:3px solid var(--kc,var(--honey-deep));background:#fff}
+.ksearch .ic{width:24px;height:24px;flex:none;color:var(--kc,var(--honey-deep))}
+.ksearch input{flex:1;min-width:0;border:0;outline:0;background:transparent;font:800 18px var(--font);color:var(--kid-ink)}
+.kpl em{display:block;font:600 13px var(--font);font-style:normal;color:var(--ink-soft);margin-top:2px}
+.kstats button{background:#fff;border:0;border-radius:16px;padding:10px;text-align:center;font:700 14px var(--font);color:var(--ink-soft);cursor:pointer;box-shadow:0 3px 0 rgba(0,0,0,.08)}
+.kstats button:active{transform:translateY(2px);box-shadow:none}
+.klist{display:flex;flex-direction:column;gap:10px;margin-top:6px}
+.kday{margin:12px 0 0;font:900 16px var(--font);color:var(--kc,var(--honey-deep))}
+.kst{color:var(--kc,var(--honey));font-size:18px;letter-spacing:1px;flex:none}.kst i{font-style:normal;opacity:.25}
+.kgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.kgi{position:relative;aspect-ratio:1;padding:0;border:3px solid var(--kc,var(--honey));border-radius:14px;overflow:hidden;background:#fff}
+.kgi img{width:100%;height:100%;object-fit:cover;display:block}
+.kvb{position:absolute;right:4px;bottom:4px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;display:grid;place-items:center}.kvb .ic{width:14px;height:14px}
+.kvoice{background:#fff;border-radius:16px;padding:10px 12px}.kvoice b{display:block;margin-bottom:6px}.kvoice audio{width:100%}
+.kview{position:fixed;inset:0;z-index:40;background:rgba(30,18,4,.88);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px}
+.kview img,.kview video{max-width:100%;max-height:72vh;border-radius:18px}
+.kview p{color:#fff;font:700 15px var(--font);margin:0}
+.kform{display:flex;flex-direction:column;gap:10px;width:100%;margin:12px 0}
+.kform label{display:flex;flex-direction:column;gap:4px;font:800 15px var(--font)}
+.kform input{min-height:48px;padding:0 14px;border-radius:14px;border:2.5px solid var(--line);font:16px var(--font)}
+.kme{position:relative}
+.kme-n{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;padding:0 5px;border-radius:99px;background:#E5484D;color:#fff;font:800 12px/20px var(--font);font-style:normal;text-align:center}

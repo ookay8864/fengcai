@@ -125,6 +125,7 @@ export const LocalStore = {
   async importAll(file) {
     const first = await file.slice(0, 32).text();
     let data, base = 0;
+    if (first.startsWith('FCKID1 ')) throw new Error('這是孩子傳來的打卡，請到首頁按「收孩子的打卡」');
     if (first.startsWith('FCBAK1 ')) {
       const nl = first.indexOf('\n'), hlen = +first.slice(7, nl), hstart = new TextEncoder().encode(first.slice(0, nl + 1)).length;
       data = JSON.parse(await file.slice(hstart, hstart + hlen).text());

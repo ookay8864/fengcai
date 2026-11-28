@@ -11,6 +11,7 @@ import { makeVideo, estimate, canMakeVideo, selectVisuals, layoutItems, stopDura
 import { TRACKS } from './music.js';
 import { $, esc, toast, confirmDlg, inputDlg, fmtTime, fmtDate, dayKey, uid, icon } from './ui.js';
 import { loadBee, beeSVG } from './bee.js';
+import { isKidPack, readPack, planMerge, applyMerge } from './kidsync.js';
 import { initCapsule, hiveView, createView, checkDue, capsuleDays, memHTML, fillMemThumbs, viewCapsule, openedCapsules, anniversaryToday, dismissAnniversary, yearWord } from './capsule.js';
 
 const view = $('#view'), sheet = $('#sheet'), sb = $('#sheetbody');
@@ -117,6 +118,7 @@ async function home() {
       <button class="hexbtn" id="go">${icon('bee', 'big')}<span>打卡這裡</span></button>
       <p class="hint">${isDemo() ? '模擬模式：位置會依序換成雲南的示範地點' : '碰一下大人吊飾，或按上面的按鈕'}</p>
     </section>
+    ${getKids().some(k => k.age === 'big') ? `<div class="krecv-row"><label class="linkbtn krecv">${icon('honey')}收孩子的打卡<input type="file" id="krecv" hidden></label></div>` : ''}
     ${kidP || empty ? `<section class="todo">
       ${kidP ? `<a class="todo-i" href="#trip/${t.id}">${icon('honey')}<span>孩子蓋了 <b>${kidP}</b> 個章，等你確認</span></a>` : ''}
       ${empty ? `<a class="todo-i" href="#trip/${t.id}">${icon('camera')}<span><b>${empty}</b> 個地點還沒補照片或聲音</span></a>` : ''}
@@ -124,6 +126,7 @@ async function home() {
     <h2 class="h2">最近打卡</h2>
     ${recent.length ? `<div class="cards">${recent.map(cardHTML).join('')}</div>` : '<p class="empty">還沒有打卡。出門玩的時候碰一下吊飾，第一朵花就會開在這裡。</p>'}`;
   $('#go').onclick = startCheckin;
+  if ($('#krecv')) $('#krecv').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) receiveKid(f); };
   bindModeBar(); bindDemoBar();
   setTimeout(() => askKidMode().catch(() => {}), 600);
   // 回憶日：膠囊打開滿一年、兩年…的那天
@@ -165,6 +168,53 @@ async function goTrip() {
   const name = await newTrip();
   toast(`出發！之後的打卡都放進「${name}」`);
 }
+// ---------- 收大童傳來的打卡：列出每一站要併到哪裡，勾選後合併 ----------
+async function receiveKid(file) {
+  let head, items;
+  try {
+    if (!(await isKidPack(file))) { toast('這不是孩子傳來的打卡檔（備份檔請到設定 → 備份還原）'); return; }
+    head = await readPack(file); items = await planMerge(head);
+  } catch (e) { toast(e.message || '讀不出這個檔案'); return; }
+  const who = head.kid ? head.kid.name : '孩子';
+  const todo = items.filter(x => x.kind !== 'dup'), dup = items.length - todo.length;
+  const nm = s => esc(cleanName(s || ''));
+  const label = x => x.kind === 'join' ? `${icon('flower')}跟你們同一站${nm(x.target.placeName) !== nm(x.k.placeName) ? `：${nm(x.target.placeName)}` : ''}`
+    : x.kind === 'more' ? `補 ${x.ms.length} 個照片、影片或聲音`
+    : `只有 ${esc(who)}・放進「${esc(x.trip.name)}」`;
+  let html = `<h2 class="h2" style="margin-top:0">${icon('honey')}${esc(who)} 傳來 ${items.length} 站</h2>`;
+  if (!todo.length) html += `<p>這些都已經收過了，不用再合併。</p><div class="row"><button class="btn main" data-a="x">知道了</button></div>`;
+  else {
+    let day = '';
+    html += '<div class="places">';
+    todo.forEach(x => {
+      const ts = x.k.kidTs || x.k.ts, d = fmtDate(ts);
+      if (d !== day) { day = d; html += `<p class="kr-day">${esc(d)}</p>`; }
+      const nf = x.ms.length;
+      html += `<label class="place"><input type="checkbox" data-i="${items.indexOf(x)}" checked><span class="pl-t"><span>${fmtTime(ts)} <b>${nm(x.k.placeName)}</b>${nf && x.kind !== 'more' ? ` <span class="kr-n">${icon('camera')}${nf}</span>` : ''}</span><small>${label(x)}</small></span></label>`;
+    });
+    html += `</div>${dup ? `<p class="muted sm">${dup} 站已經收過，自動略過</p>` : ''}
+      <p class="muted sm">只會新增，不會改掉你原本的資料。</p>
+      <div class="row"><button class="btn" data-a="x">取消</button><button class="btn main" data-a="ok" id="krok"></button></div>`;
+  }
+  const ov = overlay(html);
+  const boxes = [...ov.querySelectorAll('[data-i]')];
+  const cnt = () => { const n = boxes.filter(b => b.checked).length, b = ov.querySelector('#krok'); if (b) { b.textContent = n ? `合併 ${n} 站` : '沒有勾選'; b.disabled = !n; } };
+  boxes.forEach(b => b.onchange = cnt); cnt();
+  ov.onclick = async e => {
+    const a = e.target.closest('[data-a]')?.dataset.a;
+    if (a === 'x') ov.remove();
+    if (a === 'ok') {
+      const pick = boxes.filter(b => b.checked).map(b => items[+b.dataset.i]);
+      e.target.disabled = true; e.target.textContent = '合併中…';
+      const r = await applyMerge(head, pick);
+      ov.remove();
+      if (r.bad) await confirmDlg(`合併了 ${r.stops} 站、${r.files} 個照片影片聲音，有 ${r.bad} 個檔案沒存進去。可以請${esc(who)}再傳一次，已經收過的會自動略過。`, '知道了', '');
+      else toast(`已合併 ${who} 的 ${r.stops} 站${r.files ? `、${r.files} 個照片影片聲音` : ''}`);
+      rerender();
+    }
+  };
+}
+
 // ---------- 備份：分享選單 → 儲存到檔案 ----------
 async function doBackup(part, label = '') {
   toast(part === 'all' ? '正在打包完整備份…' : '正在打包新增的部分…');
