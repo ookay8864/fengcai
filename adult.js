@@ -1,9 +1,9 @@
 // 蜂采 大人頁面
 import { CONFIG, getSetting, setSetting } from './config.js';
 import { store, ensureActiveTrip, getActiveId, setActiveId, askPersist, isKid, isAdult, findMergeTarget, getMode, startTrip, resumeTrip, endTrip, isDaily, moveDaysToTrip, moveToDaily, dailyId } from './store.js';
-import { getPosition, peekPosition, nearby, searchPlaces, inMainland, badgeOf, BADGES, shortType, isDemo, demoOff, amapLink, testAMap } from './geo.js';
+import { getPosition, peekPosition, nearby, searchPlaces, inMainland, badgeOf, BADGES, shortType, isDemo, demoOff, amapLink, testAMap, distM, regionName } from './geo.js';
 import { compressImage, videoThumb, startRecorder, blobDims } from './media.js';
-import { mountMap, gardenSVG, dayInfo, defaultDay, markerSVG, markerNumSVG, whoText, isDailyC } from './map.js';
+import { mountMap, gardenSVG, dayInfo, defaultDay, markerSVG, markerNumSVG, whoText, isDailyC, mergeDaily } from './map.js';
 import { allThemes, getTheme, themeIcon, itemIcon, ITEMS, GROUNDS, listCustom, saveCustom, deleteCustom } from './themes.js';
 import { getKids, kidById, newKid, upsertKid, removeKid, kidUrl, colorHex, KID_COLORS, FEELS, beeColorOf } from './kids.js';
 import { collect, renderPostcard, DEFAULT_PC, PALETTES, TEMPLATES, SIZES, MAX_PC_PHOTOS } from './postcard.js';
@@ -599,12 +599,12 @@ async function trips() {
   const dailyOf = (y, m) => nodes.find(n => isDaily(n.t) && n.t.id === `daily-${y}-${String(m + 1).padStart(2, '0')}`);
   const tripCount = entries.filter(e => e.kind === 'trip' && e.n.cs.length).length;
   view.innerHTML = `
-    <div class="row between" style="margin-top:4px"><h1 class="h1" style="margin:0">我的旅行包</h1><span class="topright"><a class="btn sm hivebtn" href="#hive" aria-label="時光膠囊"><svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M12 2.5l8 4.6v9.8l-8 4.6-8-4.6V7.1z" fill="var(--cap-wax)" stroke="var(--cap-rim)" stroke-width="1.6"/></svg>膠囊</a><button class="topsearch" id="tsrch" aria-label="搜尋旅行包">${icon('search')}</button></span></div>
+    <div class="row between" style="margin-top:4px"><h1 class="h1" style="margin:0">我的旅行包</h1><span class="topright"><a class="btn sm hivebtn" href="#hive" aria-label="時光膠囊"><svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M12 2.5l8 4.6v9.8l-8 4.6-8-4.6V7.1z" fill="var(--cap-wax)" stroke="var(--cap-rim)" stroke-width="1.6"/></svg>膠囊</a><a class="topsearch" href="#map/all-trip" aria-label="全部足跡地圖">${icon('map')}</a><button class="topsearch" id="tsrch" aria-label="搜尋旅行包">${icon('search')}</button></span></div>
     <div class="row" style="margin:6px 0 0">${curTrip ? `<a class="tag on" href="#trip/${act}">旅行中</a>` : `<button class="btn main sm" id="new">${icon('plus')}開始旅行</button>`}</div>
     <div class="srchbar" id="srchbar" hidden><span>${icon('search')}</span><input id="tq" type="search" placeholder="搜尋旅行名稱或地點，例如：雲南、廣州" autocomplete="off"><button class="linkbtn" id="tqx">取消</button></div>
     <p class="muted sm" id="tqnone" hidden>找不到符合的旅行包</p>
     <section class="calbox">
-      <div class="calhead c3"><span class="calsp"></span><span class="calmid"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="選擇年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></span><a class="calmap" href="#map/all-trip" aria-label="全部足跡地圖">${icon('map')}</a></div>
+      <div class="calhead c3"><span class="calsp"></span><span class="calmid"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="選擇年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></span><span class="calsp"></span></div>
       <div class="calgrid wk">${WKS.map(w => `<span>${w}</span>`).join('')}</div>
       <div class="calgrid c2" id="calgrid"></div>
       <div class="callegend c2"><span><i class="lg2"><i class="chl c0 s e"></i></i>旅行</span><span><i class="lg2"><i class="cdot"></i></i>日常</span><span><i class="lg2"><i class="chx"></i></i>膠囊</span><span><i class="lg2 ring"></i>今天</span><button class="linkbtn" id="caltoday">回到本月</button></div>
@@ -744,12 +744,12 @@ async function dailyView() {
   if (!dailyYM) { const d = new Date(); dailyYM = [d.getFullYear(), d.getMonth()]; }
   const curDaily = ts.map(t => t.id).sort().pop();
   view.innerHTML = `
-    <div class="row between" style="margin-top:4px"><h1 class="h1" style="margin:0">我的日常</h1><button class="topsearch" id="dsrch" aria-label="搜尋地方">${icon('search')}</button></div>
+    <div class="row between" style="margin-top:4px"><h1 class="h1" style="margin:0">我的日常</h1><span class="topright"><a class="topsearch" href="#map/all-daily" aria-label="全部足跡地圖">${icon('map')}</a><button class="topsearch" id="dsrch" aria-label="搜尋地方">${icon('search')}</button></span></div>
     <div class="srchbar" id="srchbar" hidden><span>${icon('search')}</span><input id="dq" type="search" placeholder="搜尋地方，例如：餐廳、火鍋、店名" autocomplete="off"><button class="linkbtn" id="dqx">取消</button></div>
     <div id="dsres"></div>
     <div id="dmain">
     <section class="calbox">
-      <div class="calhead c3"><span class="calsp"></span><span class="calmid"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="選擇年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></span><a class="calmap" href="#map/all-daily" aria-label="全部足跡地圖">${icon('map')}</a></div>
+      <div class="calhead c3"><span class="calsp"></span><span class="calmid"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="選擇年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></span><span class="calsp"></span></div>
       <div class="calgrid wk">${WKS.map(w => `<span>${w}</span>`).join('')}</div>
       <div class="calgrid" id="calgrid"></div>
       <div class="callegend"><span><i class="lg-dot ring"></i>有打卡</span><span><i class="lg-dot ph"></i>有拍照</span><button class="linkbtn" id="caltoday">回到本月</button></div>
@@ -1011,6 +1011,33 @@ function visitsSheet(c) {
   (async () => { for (const v of vs.slice(0, 60)) { const m = (await store.listMedia(v.id)).find(x => x.kind !== 'audio' && (x.thumb || x.kind === 'photo')); const el = sb.querySelector(`[data-vth="${v.id}"]`); if (m && el) el.innerHTML = `<img src="${ou(m.thumb || m.blob)}" alt="">`; } })().catch(() => {});
 }
 
+// ---------- 足跡總覽：地圖下面的統計 ----------
+// cs 已經放上孩子的蜜蜂；kind：'trip'（一趟）、'trips'（全部旅行）、'daily'（日常）
+const placeLabel = s => String(s || '').replace(/（模擬）/g, '').trim();
+function footStats(cs, kind, nTrips = 0) {
+  const places = mergeDaily(cs, 100, true);
+  // 公里：同一趟（日常是同一天）裡，依時間一站接一站的直線距離加起來
+  const seg = {};
+  cs.filter(c => c.lat != null).forEach(c => { const k = kind === 'daily' ? dayKey(c.ts) : c.tripId; (seg[k] = seg[k] || []).push(c); });
+  let m = 0;
+  Object.values(seg).forEach(L => { L.sort((a, b) => a.ts - b.ts); for (let i = 1; i < L.length; i++) m += distM(L[i - 1], L[i]); });
+  const km = m / 1000, kmTxt = km < 10 ? km.toFixed(1) : Math.round(km).toLocaleString();
+  const together = places.filter(p => isKid(p) && isAdult(p)).length;
+  const tiles = [...(kind === 'trips' ? [[nTrips, '趟旅程']] : []), [places.length, '個地方'], ['…', '個城市', 'id="stcity"'], [kmTxt, '公里']];
+  const top = kind === 'daily' ? places.filter(p => p.lat != null).sort((a, b) => (b._n || 1) - (a._n || 1) || b.ts - a.ts).slice(0, 3) : [];
+  return `<div class="stats fstats" style="grid-template-columns:repeat(${tiles.length},minmax(0,1fr))">${tiles.map(([n, l, a]) => `<div><b ${a || ''}>${n}</b>${l}</div>`).join('')}</div>
+    ${together ? `<p class="ftog">${mkIcon({ adult: true, kid: true }, 30)}<span>孩子也一起去的地方 <b>${together}</b> 個</span></p>` : ''}
+    ${top.length ? `<div class="ftop"><p class="lbl">最常去的地方</p>${top.map((p, i) => `<button class="ftop-i" data-top="${i}"><span class="ftop-n">${i + 1}</span><b>${esc(placeLabel(p.placeName))}</b><small>${p._n || 1} 次</small></button>`).join('')}</div>` : ''}`;
+}
+// 城市數：每一小塊區域查一次城市名（查過會存在手機裡，下次不用網路）
+async function fillCities(cs) {
+  const cells = new Map();
+  cs.filter(c => c.lat != null).forEach(c => { const k = `${c.lat.toFixed(1)},${c.lng.toFixed(1)}`; if (!cells.has(k)) cells.set(k, c); });
+  const names = new Set(); let asked = 0;
+  for (const c of [...cells.values()].slice(0, 60)) { const nm = await regionName(c.lat, c.lng, true).catch(() => ''); asked++; if (nm) names.add(nm); const el = $('#stcity'); if (!el) return; if (names.size) el.textContent = names.size; }
+  const el = $('#stcity'); if (el) el.textContent = names.size || (asked ? '—' : 0);
+}
+
 // 旅行的花色＝明信片選的配色；還沒做明信片＝淺灰
 const palOfTrip = t => (t.pc && t.pc.palette && PALETTES[t.pc.palette] ? t.pc.palette : 'gray');
 async function mapView(id) {
@@ -1042,65 +1069,61 @@ async function mapView(id) {
     showMe();
     return;
   }
-  // ---- 只看這一趟 ----
+  // ---- 足跡總覽：真實地圖＋統計，不分天、不連線（每天怎麼走，到旅行包的那一天看） ----
+  const md = ts => { const d = new Date(ts); return `${d.getMonth() + 1}/${d.getDate()}`; };
+  const pick = c => { if (c._n > 1) visitsSheet(c); else location.hash = `c/${c.id}`; };
+  const page = async ({ back, backTxt, title, sub, cs, kind, nTrips, opt }) => {
+    view.innerHTML = `<div class="foothead"><a class="btn sm" href="${back}" aria-label="回去">${icon('back')}${esc(backTxt)}</a><div><b>${esc(title)}</b><small>${sub}</small></div></div>
+      ${demoBar()}
+      <div id="mapbox"></div>
+      ${footStats(cs, kind, nTrips)}${keyNote}`;
+    bindDemoBar();
+    view.querySelectorAll('[data-top]').forEach(b => b.onclick = () => pick(mergeDaily(cs, 100, true).filter(p => p.lat != null).sort((a, b) => (b._n || 1) - (a._n || 1) || b.ts - a.ts)[+b.dataset.top]));
+    const top = $('#mapbox').getBoundingClientRect().top + window.scrollY;
+    const below = kind === 'daily' ? 250 : 150;
+    curMap = await mountMap($('#mapbox'), cs, { style: mapStyle(), height: Math.max(280, Math.min(560, window.innerHeight - top - below)), day: null, noPills: true, wantMe: true, merge: true, group: true, ...opt });
+    showMe();
+    fillCities(cs);
+  };
   if (id) {
     const t = await store.getTrip(id);
     if (!t) { location.hash = 'map'; return; }
-    const cs = await store.listCheckins(t.id);
-    const days = new Set(cs.map(c => dayKey(c.ts))).size;
-    view.innerHTML = `<div class="row between"><h1 class="h1">採蜜地圖</h1><span class="muted sm">${cs.length} 個地點</span></div>
-      <div class="focuscard"><a class="btn sm" href="${isDaily(t) ? '#daily' : '#map'}" id="backall" aria-label="${isDaily(t) ? '回日常' : '回全部足跡'}">${icon('back')}${isDaily(t) ? '日常' : '全部'}</a><div><b>${esc(t.name)}</b><small>${isDaily(t) ? '日常' : `${days} 天 · ${cs.length} 站`}</small></div><button class="btn main sm" id="conn">${icon('flower')}連起來</button></div>
-      <div class="dayseg" id="daytabs"></div>
-      <div id="mapbox"></div>
-      <div class="daylist" id="daylist"></div>
-      ${mapLegend()}${keyNote}`;
+    const cs = await addBees((await store.listCheckins(t.id)).filter(isAdult));
     if (isDaily(t)) {
-      // 日常：不編號、不連線，用蜂蜜光暈看常去的地方
-      $('#conn').remove(); $('#daytabs').remove(); $('#daylist').remove();
-      curMap = await mountMap($('#mapbox'), await addBees(cs), { style: mapStyle(), height: fitH(250), seed: t.id, day: null, noPills: true, wantMe: true, merge: true, cluster: true,
-        onPick: c => { if (c._n > 1) visitsSheet(c); else location.hash = `c/${c.id}`; } });
-      showMe();
+      await page({ back: '#daily', backTxt: '日常', title: t.name, sub: `${cs.length} 次打卡`, cs, kind: 'daily', opt: { seed: t.id, cluster: true, onPick: pick } });
       return;
     }
-    await attachMap($('#mapbox'), cs, fitH(290), t.id, false, { wantMe: true, tripPal: { [t.id]: palOfTrip(t) } });
-    // 旅行一打開就沿著順序串起來
-    const conn = $('#conn');
-    if (!isDaily(t) && conn && !conn.disabled) setTimeout(() => { if ($('#conn') === conn) conn.click(); }, 500);
-    showMe();
+    const days = new Set(cs.map(c => dayKey(c.ts))).size;
+    const sub = cs.length ? `${md(cs[0].ts)}${days > 1 ? ` – ${md(cs[cs.length - 1].ts)}` : ''} · ${days} 天` : '還沒有打卡';
+    await page({ back: `#trip/${t.id}`, backTxt: '旅行包', title: t.name, sub, cs, kind: 'trip', opt: { seed: t.id, mergeAll: true, tripPal: { [t.id]: palOfTrip(t) }, onPick: pick } });
     return;
   }
 
-  // ---- 全部足跡：旅行／日常／孩子，一次看一種（從哪個分頁進來就先看哪一種） ----
+  // ---- 全部足跡：從旅行包進來看全部旅行，從日常進來看全部日常；孩子分頁進來看孩子 ----
   const kidsOK = kidOn() && getKids().length;
   let what = (id || '').startsWith('all-') ? id.slice(4) : (mapFrom === 'daily' ? 'daily' : mapFrom === 'kids' ? 'kid' : 'trip');
   if (what === 'kid' && !kidsOK) what = 'trip';
   const ts = await store.listTrips();
-  let all = [];
   if (what === 'kid') {
     const kids = getKids(), sel = kids.find(k => k.id === getSetting('kidsSel')) || kids[0];
-    all = (await kidData(sel)).cs.map(c => ({ ...c, kid: true, adult: false, ts: c.kidTs || c.ts }));
-  } else for (const t of ts.filter(t => (what === 'daily') === isDaily(t))) all = all.concat((await store.listCheckins(t.id)).filter(isAdult));
+    const all = (await kidData(sel)).cs.map(c => ({ ...c, kid: true, adult: false, ts: c.kidTs || c.ts })).sort((p, q) => p.ts - q.ts);
+    view.innerHTML = `<div class="foothead"><a class="btn sm" href="#kids" aria-label="回去">${icon('back')}孩子</a><div><b>${esc(sel.name)}的足跡</b><small>${all.length} 個地點</small></div></div><div id="mapbox"></div>${keyNote}`;
+    const top = $('#mapbox').getBoundingClientRect().top + window.scrollY;
+    curMap = await mountMap($('#mapbox'), all, { style: mapStyle(), height: Math.max(300, Math.min(600, window.innerHeight - top - 110)), seed: 'all-kid', day: null, noPills: true, wantMe: true, group: true, onPick: () => { location.hash = 'kids'; } });
+    showMe();
+    return;
+  }
+  const daily = what === 'daily', mine = ts.filter(t => daily === isDaily(t));
+  let all = [];
+  for (const t of mine) all = all.concat((await store.listCheckins(t.id)).filter(isAdult));
   all.sort((p, q) => p.ts - q.ts);
+  all = await addBees(all);
   const trips = {}, tripPal = {};
   ts.forEach(t => { trips[t.id] = { name: t.name }; if (!isDaily(t)) tripPal[t.id] = palOfTrip(t); });
-  const back = mapFrom === 'daily' ? '#daily' : mapFrom === 'kids' ? '#kids' : '#trips';
-  const seg = `<div class="seg whoseg" role="group" aria-label="看哪一種">${[['trip', '旅行'], ['daily', '日常'], ...(kidsOK ? [['kid', '孩子']] : [])].map(([k, n]) => `<a href="#map/all-${k}" class="segbtn${what === k ? ' on' : ''}">${n}</a>`).join('')}</div>`;
-  const tip = what === 'trip' ? '一朵大花是一趟旅行，點它就只看那一趟。' : what === 'daily' ? '日常是蜂蜜光暈，越常去越亮；放大到街道時，點中間的小點可以看去過幾次。' : '孩子去過的地方。';
-  view.innerHTML = `<div class="row between"><a class="back" href="${back}" style="margin:0">${icon('back')}回去</a><span class="muted sm">${all.length} 個地點</span></div>
-    <h1 class="h1" style="margin:6px 0 8px">全部足跡</h1>
-    ${demoBar()}
-    <div class="mapbar">${seg}</div>
-    <div id="mapbox"></div>
-    <p class="muted sm" style="margin:10px 2px 0">${tip}</p>${keyNote}`;
-  bindDemoBar();
-  const top = $('#mapbox').getBoundingClientRect().top + window.scrollY;
-  const opt = what === 'kid'
-    ? { style: mapStyle(), height: fitH(top + 110), seed: 'all-kid', day: null, noPills: true, wantMe: true, onPick: () => { location.hash = 'kids'; } }
-    : { style: mapStyle(), height: fitH(top + 110), seed: 'all-' + what, day: null, noPills: true, wantMe: true, merge: true, cluster: true, trips, tripPal,
-      onTrip: tid => { location.hash = `map/${tid}`; },
-      onPick: c => { if (!isDailyC(c)) location.hash = `map/${c.tripId}`; else if (c._n > 1) visitsSheet(c); else location.hash = `c/${c.id}`; } };
-  curMap = await mountMap($('#mapbox'), what === 'kid' ? all : await addBees(all), opt);
-  showMe();
+  const nTrips = daily ? 0 : new Set(all.map(c => c.tripId)).size;
+  const span = all.length ? (new Date(all[0].ts).getFullYear() === new Date(all[all.length - 1].ts).getFullYear() ? `${new Date(all[0].ts).getFullYear()}` : `${new Date(all[0].ts).getFullYear()} – ${new Date(all[all.length - 1].ts).getFullYear()}`) : '還沒有打卡';
+  await page({ back: daily ? '#daily' : '#trips', backTxt: daily ? '日常' : '旅行包', title: daily ? '全部日常' : '全部旅行', sub: span, cs: all, kind: daily ? 'daily' : 'trips', nTrips,
+    opt: { seed: 'all-' + what, cluster: true, trips, tripPal, onTrip: tid => { location.hash = `map/${tid}`; }, onPick: c => { if (!isDailyC(c)) location.hash = `map/${c.tripId}`; else pick(c); } } });
 }
 
 // ---------- 花園主題：選擇與自訂 ----------
@@ -1750,6 +1773,25 @@ async function editPlaceSheet(c) {
   };
 }
 
+// 補打卡：改這一站的日期和時間（日常會自動放進那個月的日常）
+function editTimeSheet(c, inDaily) {
+  const d = new Date(c.ts), p2 = n => String(n).padStart(2, '0');
+  openSheet(`<h2 class="h2">改時間</h2>
+    <p class="muted" style="margin-top:0">補打卡的話，改成真正去的那一天。</p>
+    <p class="lbl">日期</p><input id="td" class="inp" type="date" value="${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}">
+    <p class="lbl">時間</p><input id="tt" class="inp" type="time" value="${p2(d.getHours())}:${p2(d.getMinutes())}">
+    <div class="row sheet-act"><button class="btn main" id="tok">${icon('check')}儲存</button></div>`);
+  $('#tok').onclick = async () => {
+    const [y, m, dd] = ($('#td').value || '').split('-').map(Number), [hh, mm] = ($('#tt').value || '00:00').split(':').map(Number);
+    if (!y || !m || !dd) { toast('請選一個日期'); return; }
+    const ts = new Date(y, m - 1, dd, hh || 0, mm || 0).getTime();
+    if (ts > Date.now() + 60e3) { toast('不能選未來的時間'); return; }
+    c.ts = ts;
+    if (inDaily) await moveToDaily(c); else await store.saveCheckin(c);
+    toast('時間已更新'); closeSheet(); rerender();
+  };
+}
+
 // ---------- 單一打卡點 ----------
 async function checkin(id) {
   const c = await store.getCheckin(id);
@@ -1774,7 +1816,7 @@ async function checkin(id) {
   view.innerHTML = `<a class="back" href="${inDaily ? '#daily' : `#trip/${c.tripId}`}">${icon('back')}${inDaily ? '日常' : esc(t?.name || '旅行包')}</a>
     <div class="detail-head"><div class="card-ic lg">${icon(b.icon)}</div><div><h1 class="h1">${esc(c.placeName)}</h1><p class="muted">${fmtDate(c.ts)} ${fmtTime(c.ts)}${c.acc ? ` · 誤差約 ${c.acc} 公尺` : ''}</p>${isKid(c) && isAdult(c) ? '<span class="tag kid">孩子＋大人一起打卡</span>' : ''}</div></div>
     ${pending ? `<div class="kidbox">${icon('honey')}<div><b>這是孩子蓋的章（${esc(b.name)}）</b><p>系統自動選了最近的地點，請確認是否正確。</p><div class="row"><button class="btn main sm" id="conf">${icon('check')}地點正確</button><button class="btn sm" id="ren">${icon('pin')}修改地點</button></div></div></div>` : ''}
-    <div class="row">${pending ? '' : `<button class="btn sm" id="ren">${icon('pin')}修改地點</button>`}${inDaily ? '' : `<button class="btn sm" id="todaily">${icon('flower')}移到日常</button>`}${c.lat != null ? `<a class="btn sm" href="${amapLink(c.lat, c.lng, c.placeName)}" target="_blank" rel="noopener">${icon('map')}在高德地圖開啟</a>` : ''}</div>
+    <div class="row">${pending ? '' : `<button class="btn sm" id="ren">${icon('pin')}修改地點</button>`}<button class="btn sm" id="retime">${icon('clock')}改時間</button>${inDaily ? '' : `<button class="btn sm" id="todaily">${icon('flower')}移到日常</button>`}${c.lat != null ? `<a class="btn sm" href="${amapLink(c.lat, c.lng, c.placeName)}" target="_blank" rel="noopener">${icon('map')}在高德地圖開啟</a>` : ''}</div>
     <h2 class="h2">照片與影片 <small>${vis.length}/${MAX}・影片最多 ${MAX_VIDEOS} 支</small></h2>
     <div class="grid">
       ${vis.map(x => `<div class="tile${x.star ? ' star' : ''}"><button class="tile-v" data-v="${x.id}" aria-label="查看">${x.thumb ? `<img src="${ou(x.thumb)}" alt=""${fpos(x)}>` : `<span class="vph">${icon('play')}</span>`}${x.kind === 'video' ? `<span class="vbadge">${icon('play')}</span>` : ''}</button><button class="tile-s" data-s="${x.id}" aria-pressed="${x.star ? 'true' : 'false'}" aria-label="精選"><span class="star-badge">${icon('star')}</span></button>${x.focus ? `<i class="focus-dot" style="left:${(x.focus.x * 100).toFixed(1)}%;top:${(x.focus.y * 100).toFixed(1)}%"></i>` : ''}</div>`).join('')}
@@ -1790,6 +1832,7 @@ async function checkin(id) {
     <div class="row"><button class="btn danger" id="del">${icon('trash')}刪除這次打卡</button></div>`;
 
   $('#ren').onclick = () => editPlaceSheet(c);
+  $('#retime').onclick = () => editTimeSheet(c, inDaily);
   if ($('#conf')) $('#conf').onclick = async () => { c.confirmed = true; await store.saveCheckin(c); toast('已確認'); rerender(); };
   if ($('#f')) $('#f').onchange = async e => { await addFiles(id, e.target.files); rerender(); };
   if ($('#rec')) $('#rec').onclick = () => recordSheet(id);

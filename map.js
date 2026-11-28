@@ -144,10 +144,10 @@ export function markerSVG(x, y, c, num, s = 1, cls = '', photo = null, numStyle 
 export const isDailyC = c => typeof c.tripId === 'string' && c.tripId.startsWith('daily-');
 const placeKey = s => String(s || '').replace(/（模擬）/g, '').trim();
 // 同一個地方的日常打卡合併成一朵：100 公尺內、名字一樣；旅行的不合併
-export function mergeDaily(cs, meters = 100) {
+export function mergeDaily(cs, meters = 100, all = false) {
   const out = [], groups = [];
   for (const c of cs) {
-    if (!isDailyC(c) || c.lat == null) { out.push(c); continue; }
+    if ((!all && !isDailyC(c)) || c.lat == null) { out.push(c); continue; }
     const k = placeKey(c.placeName);
     let g = groups.find(g => g.k === k && distM(g, c) <= meters);
     if (!g) { g = { k, lat: c.lat, lng: c.lng, list: [] }; groups.push(g); }
@@ -156,7 +156,8 @@ export function mergeDaily(cs, meters = 100) {
   for (const g of groups) {
     g.list.sort((a, b) => b.ts - a.ts);
     const last = g.list[0];
-    out.push({ ...last, kid: g.list.some(isKid), adult: g.list.some(isAdult), _n: g.list.length, _visits: g.list });
+    const kidIds = [...new Set(g.list.flatMap(c => c.kidIds || []))];
+    out.push({ ...last, kid: g.list.some(isKid), adult: g.list.some(isAdult), ...(kidIds.length ? { kidIds } : {}), _n: g.list.length, _visits: g.list });
   }
   return out.sort((a, b) => a.ts - b.ts);
 }
@@ -170,6 +171,12 @@ function clusterPx(pts, toPx, gap = 58) {
   });
   return cl;
 }
+// 疊在一起的花合成一朵，角上寫有幾站（足跡總覽用）
+function groupPt(list) {
+  const kidIds = [...new Set(list.flatMap(c => c.kidIds || []))];
+  return { ...list[0], kid: list.some(isKid), adult: list.some(isAdult), ...(kidIds.length ? { kidIds } : {}) };
+}
+const groupN = list => list.reduce((a, c) => a + (c._n || 1), 0);
 // 全部足跡的三種距離：很遠＝蜂蜜罐；中間＝日常光暈＋旅行大花；很近＝光暈中心多一個可以點的小點
 const FAR_Z = 12, NEAR_Z = 16;
 // 日常的蜂蜜光暈：去越多次，越大越亮
@@ -485,7 +492,24 @@ async function mountOSM(el, pts, info, opt) {
     });
   };
   map.on('zoomend', recluster);
-  paint(); fit(); recluster();
+  let grp = [];
+  const regroup = () => {
+    if (!opt.group) return;
+    grp.forEach(m => m.remove()); grp = [];
+    if (tiers && map.getZoom() < FAR_Z) return;
+    const idx = pts.map((_, i) => i).filter(i => !(tiers && isDailyC(pts[i])));
+    idx.forEach(i => { if (!map.hasLayer(markers[i])) markers[i].addTo(map); });
+    clusterPx(idx.map(i => ({ i })), q => map.latLngToContainerPoint([pts[q.i].lat, pts[q.i].lng]), 42).forEach(g => {
+      if (g.pts.length < 2) return;
+      const list = g.pts.map(q => pts[q.i]), sz = Math.round(44 * 1.25);
+      g.pts.forEach(q => markers[q.i].remove());
+      const mk = L.marker(map.containerPointToLatLng([g.x, g.y]), { icon: L.divIcon({ html: tripMarker(opt, groupPt(list), groupN(list), false, opt.style, false), className: 'leaf-mk', iconSize: [sz, sz], iconAnchor: [sz / 2, sz / 2] }), zIndexOffset: 250 })
+        .on('click', () => { if (map.getZoom() >= 17) { if (opt.onPick) opt.onPick(list[0]); } else map.setView(map.containerPointToLatLng([g.x, g.y]), Math.min(18, map.getZoom() + 2)); }).addTo(map);
+      grp.push(mk);
+    });
+  };
+  map.on('zoomend', regroup);
+  paint(); fit(); recluster(); regroup();
   let meMk = null;
   const loc = locButton(el, () => { if (opt.me) map.setView([opt.me.lat, opt.me.lng], 16); });
   const setMe = me => {
@@ -593,6 +617,25 @@ async function mountAMap(el, pts, info, opt) {
   if (markers.length) { map.add(markers); paint(); fit(); }
   map.on('zoomend', recluster);
   setTimeout(recluster, 300);
+  let grp = [];
+  const regroup = () => {
+    if (!opt.group) return;
+    if (grp.length) { map.remove(grp); grp = []; }
+    if (tiers && map.getZoom() < FAR_Z) return;
+    const idx = pts.map((_, i) => i).filter(i => !(tiers && isDailyC(pts[i])));
+    idx.forEach(i => markers[i].show());
+    clusterPx(idx.map(i => ({ i })), q => map.lngLatToContainer(pos[q.i]), 42).forEach(g => {
+      if (g.pts.length < 2) return;
+      const list = g.pts.map(q => pts[q.i]);
+      g.pts.forEach(q => markers[q.i].hide());
+      const h = new AM.Marker({ position: map.containerToLngLat(new AM.Pixel(g.x, g.y)), anchor: 'center', zIndex: 250, content: tripMarker(opt, groupPt(list), groupN(list), false, opt.style, false) });
+      h.on('click', () => { if (map.getZoom() >= 17) { if (opt.onPick) opt.onPick(list[0]); } else map.setZoomAndCenter(Math.min(18, map.getZoom() + 2), h.getPosition()); });
+      grp.push(h);
+    });
+    if (grp.length) map.add(grp);
+  };
+  map.on('zoomend', regroup);
+  setTimeout(regroup, 350);
   let line = null, bee = null, raf = 0;
   const clearRoute = () => { cancelAnimationFrame(raf); if (line) map.remove(line); if (bee) map.remove(bee); line = bee = null; };
   const routeColor = () => (opt.style === 'cute' ? '#FF6F91' : opt.style === 'night' ? '#E8B84A' : '#D98A00');
@@ -635,7 +678,7 @@ async function mountAMap(el, pts, info, opt) {
 // opt: { style:'normal'|'cute', day: 天的索引或 null（全部）, onPick(c), height, seed }
 export async function mountMap(el, checkins, opt = {}) {
   // opt.merge：日常同一個地方合併成一朵（全部足跡用）；opt.cluster：拉遠時收成蜂巢格
-  if (opt.merge) checkins = mergeDaily(checkins);
+  if (opt.merge) checkins = mergeDaily(checkins, 100, !!opt.mergeAll);
   const pts = checkins.filter(c => c.lat != null);
   const info = dayInfo(checkins);
   opt.style = opt.style || 'normal';
