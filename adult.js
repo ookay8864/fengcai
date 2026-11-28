@@ -1582,18 +1582,51 @@ async function kidsView() {
   const wk = t => `週${'日一二三四五六'[new Date(t).getDay()]}`;
   const beeI = (cls = '') => `<i class="cbee ${cls}">${beeSVG('')}</i>`;
   view.innerHTML = `<div class="kidpage" style="--kc:${col}">
-    <div class="row between" style="margin-top:4px"><h1 class="h1 kp-h1" style="margin:0">${beeI('h')}${esc(kid.name)}的打卡</h1></div>
+    <div class="row between" style="margin-top:4px"><h1 class="h1 kp-h1" style="margin:0">${beeI('h')}${esc(kid.name)}的打卡</h1><span class="topright"><a class="topsearch" href="#map/all-kid" aria-label="孩子的足跡地圖">${icon('map')}</a><button class="topsearch" id="kdsrch" aria-label="搜尋孩子的打卡">${icon('search')}</button></span></div>
     ${kids.length > 1 ? `<div class="seg kp-who" role="group" aria-label="看哪個孩子">${kids.map(k => `<button data-kid="${esc(k.id)}" class="${k.id === kid.id ? 'on' : ''}" style="--kc:${colorHex(k)}">${esc(k.name)}</button>`).join('')}</div>` : ''}
+    <div class="srchbar" id="ksearchbar" hidden><span>${icon('search')}</span><input id="kq" type="search" placeholder="搜尋孩子的地點或備註" autocomplete="off"><button class="linkbtn" id="kqx">取消</button></div>
+    <div id="ksearchres"></div>
+    <div id="kmain">
     ${strays.n ? `<div class="note kabsorb">${icon('honey')}<div><b>有 ${strays.n} 站孩子的打卡還混在你的旅行裡</b><p>是之前合併進去的，或孩子用你的手機蓋的。搬回孩子頁，你的旅行包和日常就只剩你自己的。建議先做一次備份。</p><button class="btn sm main" id="strays">${icon('check')}搬回孩子頁</button></div></div>` : ''}
     <section class="calbox">
-      <div class="calhead c3"><span class="calsp"></span><span class="calmid"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></span><a class="calmap" href="#map/all-kid" aria-label="地圖：孩子去過的地方">${icon('map')}</a></div>
+      <div class="calhead c3"><span class="calsp"></span><span class="calmid"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></span><span class="calsp"></span></div>
       <div class="calgrid wk">${WKS.map(w => `<span>${w}</span>`).join('')}</div>
       <div class="calgrid c2" id="calgrid"></div>
       <div class="callegend c2"><span><i class="lg2">${beeI()}</i>有打卡</span><span><i class="lg2"><i class="cdot ph"></i></i>有拍照</span><span><i class="lg2 ring"></i>今天</span><button class="linkbtn" id="caltoday">回到最近</button></div>
     </section>
     ${cs.length ? `<div class="tl-top"><div class="seg dseg" role="group" aria-label="怎麼看"><button data-km="stops" class="${mode === 'stops' ? 'on' : ''}">打卡</button><button data-km="photos" class="${mode === 'photos' ? 'on' : ''}">照片</button><button data-km="voice" class="${mode === 'voice' ? 'on' : ''}">錄音</button></div></div>
       <div id="klist"></div>` : `<p class="empty">還沒有${esc(kid.name)}的打卡。${kid.age === 'big' ? `請${esc(kid.name)}在自己的手機點左上角的蜜蜂 →「傳給爸媽」，再到「設定 → 備份 → 加入孩子的打卡」。` : '用爸媽的手機刷孩子的吊飾蓋章，就會出現在這裡。'}</p>`}
+    </div>
   </div>`;
+  const doKidSearch = q => {
+    q = norm(q.trim());
+    $('#kmain').hidden = !!q;
+    if (!q) { $('#ksearchres').innerHTML = ''; return; }
+    const hit = cs.filter(c => norm(cleanName(c.placeName)).includes(q) || norm(c.note).includes(q))
+      .sort((a, b) => tsOf(b) - tsOf(a));
+    $('#ksearchres').innerHTML = hit.length
+      ? `<div class="dplaces">${hit.map(c => `<button class="dplace" data-ks="${esc(c.id)}"><span class="dp-n">${esc(cleanName(c.placeName))}</span><span class="dp-c">${fmtDate(tsOf(c)).replace(/ 週.$/, '')}</span></button>`).join('')}</div>`
+      : '<p class="muted sm">找不到符合的打卡</p>';
+    $('#ksearchres').querySelectorAll('[data-ks]').forEach(b => b.onclick = () => {
+      const c = cs.find(x => x.id === b.dataset.ks);
+      if (!c) return;
+      const day = dayKey(tsOf(c));
+      if (mode !== 'stops') { setSetting('kidsMode', 'stops'); kidsGo = day; rerender(); return; }
+      $('#kq').value = '';
+      doKidSearch('');
+      $('#ksearchbar').hidden = true;
+      const el = view.querySelector(`[data-day="${day}"]`);
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+    });
+  };
+  $('#kdsrch').onclick = () => {
+    const bar = $('#ksearchbar');
+    bar.hidden = !bar.hidden;
+    if (!bar.hidden) $('#kq').focus();
+    else { $('#kq').value = ''; doKidSearch(''); }
+  };
+  $('#kq').oninput = e => doKidSearch(e.target.value);
+  $('#kqx').onclick = () => { $('#kq').value = ''; doKidSearch(''); $('#ksearchbar').hidden = true; };
   // 月曆：孩子有打卡的日子放小蜜蜂（有拍照的再多一個小點）
   const drawCal = () => {
     const [y, m] = kidsYM, first = new Date(y, m, 1).getDay(), n = new Date(y, m + 1, 0).getDate(), today = dayKey(Date.now());

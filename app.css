@@ -1172,7 +1172,7 @@ body:has(.pv) .toast{bottom:calc(env(safe-area-inset-bottom) + 150px)}
 .kidpage .cbee .bee-b{fill:var(--kc)}
 .kp-h1{display:flex;align-items:center;gap:8px}
 .kp-h1 .cbee{position:static;margin:0;width:28px;height:28px}.kp-h1 .cbee .ic{width:28px;height:28px}
-.kp-who{margin:10px 0 2px}
+.kp-who{display:flex;width:fit-content;margin:10px 0 2px auto}
 .kp-who button.on{color:var(--kc);box-shadow:inset 0 -3px 0 var(--kc),0 1px 4px rgba(0,0,0,.12)}
 .kidpage .calbox{border-top:4px solid var(--kc)}
 .kidpage .cd2 .cbee{top:31px;width:12px;height:12px;margin-left:-6px}.kidpage .cd2 .cbee .ic{width:12px;height:12px}
