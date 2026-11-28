@@ -141,3 +141,65 @@ export async function applyMerge(head, items) {
   }
   return { stops, files, bad };
 }
+
+// ---------- 孩子手機的「完整備份」（.fcbak，FCBAK1）：也當成孩子的打卡來合併，不整包還原 ----------
+const kidOnly = c => (c.kid != null ? c.kid : c.by === 'kid') && !(c.adult != null ? c.adult : c.by !== 'kid');
+export const isKidOnlyTrip = cs => cs.length > 0 && cs.every(kidOnly);
+async function readKidBackup(file) {
+  const first = await file.slice(0, 32).text();
+  if (!first.startsWith('FCBAK1 ')) return null;
+  const nl = first.indexOf('\n'), hlen = +first.slice(7, nl), hstart = new TextEncoder().encode(first.slice(0, nl + 1)).length;
+  let data; try { data = JSON.parse(await file.slice(hstart, hstart + hlen).text()); } catch (e) { return null; }
+  if (data.app !== 'fengcai' || !(data.checkins || []).length || !data.checkins.every(kidOnly)) return null;
+  // 是哪個孩子：備份裡的孩子名單＋最後一次打開的孩子
+  let kids = [], last = null;
+  try { kids = JSON.parse((data.settings || {})['fc-kids'] || '[]'); last = (data.settings || {})['fc-kid-last']; } catch (e) {}
+  const ids = [...new Set(data.checkins.flatMap(c => c.kidIds || []))];
+  const kid = kids.find(k => k.id === last && ids.includes(k.id)) || kids.find(k => ids.includes(k.id)) || (ids[0] ? kidById(ids[0]) : null);
+  const base = hstart + hlen;
+  return {
+    app: 'fengcai-kid', v: 1, at: data.at, kid, fromBackup: true,
+    checkins: data.checkins, media: (data.media || []).filter(m => m.by === 'kid'),
+    take: async ref => (ref ? new Blob([await file.slice(base + ref[0], base + ref[0] + ref[1]).arrayBuffer()], { type: ref[2] || '' }) : null)
+  };
+}
+// 不管是「傳給爸媽」的檔案還是孩子手機的備份，都讀成同一種；不是孩子的檔案就回傳 null
+export async function kidHead(file) {
+  if (await isKidPack(file)) return readPack(file);
+  return readKidBackup(file);
+}
+
+// ---------- 已經整包還原進來、只有孩子打卡的旅行包：併進爸媽的旅行 ----------
+export async function absorbTrip(tripId) {
+  const { trips, cs } = await allCheckins();
+  const mine = cs.filter(c => c.tripId === tripId), others = cs.filter(c => c.tripId !== tripId);
+  const otherTrips = trips.filter(t => t.id !== tripId);
+  let joined = 0, moved = 0;
+  for (const k of mine) {
+    const kidId = (k.kidIds || [])[0], KK = kidId || 'kid', ts = k.kidTs || k.ts;
+    const target = others.filter(c => isAdult(c) && Math.abs(c.ts - ts) < MERGE.minutes * 60e3 && near(k, c) && !(kidId && (c.kidIds || []).includes(kidId)))
+      .sort((a, b) => Math.abs(a.ts - ts) - Math.abs(b.ts - ts))[0];
+    if (target) {
+      const c = await store.getCheckin(target.id);
+      c.kid = true; if (c.adult == null) c.adult = c.by !== 'kid';
+      c.kidIds = [...new Set([...(c.kidIds || []), ...(k.kidIds || [])])];
+      c.kidSrc = [...new Set([...(c.kidSrc || []), k.id])];
+      c.kidTs = c.kidTs || ts;
+      if (k.buddy && k.buddy[KK] != null) c.buddy = { ...(c.buddy || {}), [KK]: k.buddy[KK] };
+      if (k.kidRate && k.kidRate[KK]) c.kidRate = { ...(c.kidRate || {}), [KK]: k.kidRate[KK] };
+      await store.saveCheckin(c);
+      // 照片、影片、聲音搬到爸媽那一站（先複製一份再存，iPhone 才不會壞掉）
+      for (const m of await store.listMedia(k.id)) await store.updateMedia({ ...m, checkinId: c.id });
+      if (!(await store.listMedia(k.id)).length) await store.deleteCheckin(k.id);
+      joined++;
+    } else {
+      let dest = tripFor(ts, otherTrips, others);
+      if (dest._new) dest = await ensureDaily(new Date(ts));
+      k.tripId = dest.id; k.confirmed = true; k.fromKid = true;
+      await store.saveCheckin(k);
+      others.push(k); moved++;
+    }
+  }
+  if (!(await store.listCheckins(tripId)).length) await store.deleteTrip(tripId);
+  return { joined, moved };
+}

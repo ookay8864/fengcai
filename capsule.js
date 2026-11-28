@@ -354,6 +354,6 @@ export async function openedCapsules() { return (await store.listCapsules()).fil
 // 月曆用：哪些日子有膠囊要打開（只有「顯示日期」的才標）
 export async function capsuleDays() {
   const out = {};
-  for (const c of await store.listCapsules()) if (!c.opened && c.secrecy === 'date') { const d = new Date(c.openAt); out[`${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`] = true; }
+  for (const c of await store.listCapsules()) if (!c.opened && c.secrecy === 'date') { const d = new Date(c.openAt); const k = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; out[k] = (out[k] || 0) + 1; }
   return out;
 }

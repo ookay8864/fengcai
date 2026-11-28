@@ -1114,3 +1114,46 @@ body:has(.pv) .toast{bottom:calc(env(safe-area-inset-bottom) + 150px)}
 .kform input{min-height:48px;padding:0 14px;border-radius:14px;border:2.5px solid var(--line);font:16px var(--font)}
 .kme{position:relative}
 .kme-n{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;padding:0 5px;border-radius:99px;background:#E5484D;color:#fff;font:800 12px/20px var(--font);font-style:normal;text-align:center}
+.kabsorb{display:flex;gap:10px;align-items:flex-start;margin:8px 0 12px}
+.kabsorb>.ic{width:26px;height:26px;flex:none;color:var(--honey-deep)}
+.kabsorb p{margin:4px 0 8px;font-size:14px}
+
+/* v0.22.1 旅行包月曆：螢光筆旅行、日常小點、孩子小蜜蜂、膠囊蜂巢、今天粉紅圈 */
+.calgrid.c2{column-gap:0;row-gap:4px}
+.cd2{position:relative;height:46px;border:0;background:transparent;padding:0;color:#B5A58A;font:600 15px var(--font-num,var(--font));cursor:default}
+.cd2.on{color:var(--ink);font-weight:800;cursor:pointer}
+.cd2 .cn{position:absolute;left:0;right:0;top:8px;line-height:22px;z-index:3}
+.chl{position:absolute;left:0;right:0;top:9px;height:20px;background:rgba(255,214,64,.55);z-index:1}
+.chl.c1{background:rgba(255,150,180,.42)}
+.chl.c2{background:rgba(120,205,160,.42)}
+.chl.s{left:4px;border-top-left-radius:999px;border-bottom-left-radius:999px}
+.chl.e{right:4px;border-top-right-radius:999px;border-bottom-right-radius:999px}
+.chx{position:absolute;left:50%;top:4px;width:28px;height:30px;margin-left:-14px;background:#F6DDB0;clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%);z-index:2}
+.chx.two1{margin-left:-20px;top:3px}
+.chx.two2{margin-left:-8px;top:6px;opacity:.85}
+.cd2.today .cn::before{content:"";position:absolute;left:50%;top:50%;width:32px;height:32px;margin:-16px 0 0 -16px;border-radius:50%;border:2.5px solid #FF7FA8;box-sizing:border-box;z-index:-1}
+.cd2.today{color:#C2185B}
+.cdot{position:absolute;left:50%;top:34px;width:7px;height:7px;margin-left:-3.5px;border-radius:50%;background:#E8B98F;z-index:3}
+.cdot.l{margin-left:-7.5px}
+.cbee{position:absolute;left:50%;top:32px;width:10px;height:10px;margin-left:-5px;z-index:4;display:block}
+.cbee.r{margin-left:1.5px}
+.cbee .ic{width:10px;height:10px;display:block}
+.cbee .bee-b,.kv-bee .bee-b{fill:var(--kc,var(--honey))}
+.cd2.dim{opacity:.25}
+.callegend.c2{flex-wrap:wrap;gap:6px 14px}
+.lg2{position:relative;display:inline-block;width:20px;height:16px}
+.lg2 .chl{top:2px;height:12px;left:0;right:0}
+.lg2 .cdot,.lg2 .cbee{top:4px}
+.lg2 .cbee{width:10px;height:10px}
+.lg2 .chx{top:-1px;width:16px;height:18px;margin-left:-8px}
+.lg2.ring::before{content:"";position:absolute;left:2px;top:-1px;width:17px;height:17px;border-radius:50%;border:2.5px solid #FF7FA8;box-sizing:border-box}
+.tl-btns{display:flex;gap:6px}
+.kidv .kv-bee{width:18px;height:18px}
+.kidv.on{background:var(--honey-soft);border-color:var(--honey-deep)}
+.tn-kids{margin:2px 0 4px 6px}
+.tn-kids summary{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13.5px;color:var(--ink-soft);padding:6px 4px;list-style:none}
+.tn-kids summary::-webkit-details-marker{display:none}
+.tn-kids summary::before{content:"▸";font-size:12px}
+.tn-kids[open] summary::before{content:"▾"}
+.tn-kids summary .cbee{position:static;margin:0;width:14px;height:14px}
+.tn-kids summary .cbee .ic{width:14px;height:14px}
