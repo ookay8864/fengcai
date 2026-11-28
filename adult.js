@@ -737,6 +737,20 @@ async function dailyView() {
   const days = [], byK = {};
   cs.forEach(c => { const k = dayKey(c.ts); if (!byK[k]) { byK[k] = { k, ts: c.ts, cs: [], ph: [] }; days.push(byK[k]); } byK[k].cs.push(c); byK[k].ph.push(...vis[c.id]); });
   days.reverse();
+  const capsOpened = await openedCapsules(), capsByDay = {};
+  capsOpened.forEach(c => { const k = dayKey(c.openedAt); (capsByDay[k] ||= []).push(c); });
+  const timeline = [
+    ...days.map(d => ({ kind: 'daily', ts: d.ts, d })),
+    ...capsOpened.map(c => ({ kind: 'cap', ts: c.openedAt, c }))
+  ].sort((a, b) => b.ts - a.ts);
+  const months = [];
+  timeline.forEach(e => {
+    const dt = new Date(e.ts), mk = `${dt.getFullYear()}-${dt.getMonth()}`;
+    let m = months[months.length - 1];
+    if (!m || m.mk !== mk) months.push(m = { mk, y: dt.getFullYear(), m: dt.getMonth(), items: [] });
+    m.items.push(e);
+  });
+  const dateKeys = [...new Set([...Object.keys(byK), ...Object.keys(capsByDay)])];
   // 地方：同名合在一起
   const places = {};
   cs.forEach(c => { const n = cleanName(c.placeName); (places[n] = places[n] || { name: n, cs: [] }).cs.push(c); });
@@ -751,23 +765,24 @@ async function dailyView() {
       <div class="calhead c3"><span class="calsp"></span><span class="calmid"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="選擇年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></span><span class="calsp"></span></div>
       <div class="calgrid wk">${WKS.map(w => `<span>${w}</span>`).join('')}</div>
       <div class="calgrid" id="calgrid"></div>
-      <div class="callegend"><span><i class="lg-dot ring"></i>有打卡</span><span><i class="lg-dot ph"></i>有拍照</span><button class="linkbtn" id="caltoday">回到本月</button></div>
+      <div class="callegend c2"><span><i class="lg-dot ring"></i>有打卡</span><span><i class="lg-dot ph"></i>有拍照</span><span><i class="lg2"><i class="chx"></i></i>時光蜂巢</span><span><i class="lg2 ring"></i>今天</span><button class="linkbtn" id="caltoday">回到本月</button></div>
     </section>
     <div id="dayopen"></div>
-    ${cs.length ? `<div id="dlist"></div>
-      <div class="row" style="margin-top:18px"><button class="linkbtn" id="dmv">${icon('trip')}把某幾天搬進旅行包</button></div>` : '<p class="empty">還沒有日常打卡。打卡頁的開關在「日常」時打卡，就會出現在這裡。</p>'}
+    ${timeline.length ? `<div class="tl-top"><h2 class="h2" style="margin:0">時間軸</h2></div><div id="dlist"></div>
+      ${days.length ? `<div class="row" style="margin-top:18px"><button class="linkbtn" id="dmv">${icon('trip')}把某幾天搬進旅行包</button></div>` : ''}` : '<p class="empty">還沒有日常打卡。打卡頁的開關在「日常」時打卡，就會出現在這裡。</p>'}
     </div>`;
   const stopRow = c => `<a class="tn-stop" href="#c/${c.id}"><span class="dstop-dot"></span><span class="tn-tm">${fmtTime(c.ts)}</span><b>${esc(cleanName(c.placeName))}</b>${chipsOf(c)}${vis[c.id].length ? `<span class="dstop-ph">${icon('camera')}${vis[c.id].length}</span>` : ''}</a>`;
   const thumbs = (list, n) => list.slice(0, n).map(m => `<img src="${ou(m.thumb || m.blob)}" alt=""${fpos(m)}>`).join('');
   const md2 = t => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()}`; };
   const wk = t => `週${'日一二三四五六'[new Date(t).getDay()]}`;
-  // 「日子」：有照片的日子是大卡片，沒照片的一行就好
+  const timelineDate = ts => { const d = new Date(ts); return `<div class="tl-date"><b>${d.getDate()}</b><span>${wk(ts)}</span></div>`; };
   const drawDays = () => {
-    let h = '', lastM = '';
-    days.forEach(d => {
-      const dt = new Date(d.ts), mk = `${dt.getFullYear()} 年 ${dt.getMonth() + 1} 月`;
-      if (mk !== lastM) { h += `<h3 class="dmonth">${mk}</h3>`; lastM = mk; }
-      const names = d.cs.map(c => `<a href="#c/${c.id}">${esc(cleanName(c.placeName))}</a>${chipsOf(c)}`).join('、');
+    const h = months.map(mo => `<section class="tl-sec"><div class="tl-sec-h"><h3>${mo.y} 年 ${mo.m + 1} 月</h3></div><div class="tl-rows">${mo.items.map(e => {
+      if (e.kind === 'cap') {
+        const k = dayKey(e.ts);
+        return `<div class="tl-row daily-caprow" data-dk="${k}">${timelineDate(e.ts)}<div class="tl-capcard"><p class="tl-cap-h"><i class="cd-cap lg"></i>打開了一格時光蜂巢</p>${memHTML(e.c)}</div></div>`;
+      }
+      const d = e.d;
       if (d.ph.length) {
         // 照片：1 整張、2 左右、3 一大兩小、4 田字格、5 張以上一整排左右滑（每張一樣大）
         // 精選（星星）排最前面，其他照拍的順序
@@ -777,15 +792,19 @@ async function dailyView() {
         const phs = d.ph.map((m, i) => `<button class="dc-tile" data-dph="${d.k}" data-i="${i}" aria-label="看照片"><img src="${ou(m.thumb || m.blob)}" alt="" loading="lazy"${fpos(m)}>${m.kind === 'video' ? `<span class="vbadge">${icon('play')}</span>` : ''}</button>`).join('');
         // 地點：小時間軸，先顯示 3 個，其餘收起來
         const rows = d.cs.map((c, i) => `<a class="dtl-row${i >= 3 ? ' more' : ''}" href="#c/${c.id}"><span class="dtl-t">${fmtTime(c.ts)}</span><span class="dtl-n">${esc(cleanName(c.placeName))}</span>${chipsOf(c)}</a>`).join('');
-        h += `<div class="dcard" data-day="${d.k}"><div class="dc-phw"><div class="dc-ph ${strip ? 'strip' : 'n' + n}">${phs}</div>${strip ? `<span class="dc-left" aria-hidden="true"></span>` : ''}</div>
-          <div class="dc-b"><div class="dc-top"><p class="dc-d">${md2(d.ts)} <span>${wk(d.ts)}・${d.cs.length} 個地方</span></p><a class="dc-map" href="#map/day-${d.k}">${icon('map')}地圖</a></div>
-          <div class="dtl">${rows}</div>${d.cs.length > 3 ? `<button class="dtl-more" data-more="${d.k}">還有 ${d.cs.length - 3} 個地方 ${icon('back', 'dn')}</button>` : ''}</div></div>`;
-      } else h += `<div class="dline"><span class="dl-d">${md2(d.ts)}<small>${wk(d.ts)}</small></span><span class="dl-pl">${names}</span><a class="dc-map sm" href="#map/day-${d.k}" aria-label="在地圖上看這天">${icon('map')}</a></div>`;
-    });
+        return `<div class="tl-row tl-dayrow" data-dk="${d.k}">${timelineDate(d.ts)}<div class="dcard d-tl-card" data-day="${d.k}"><div class="dc-phw"><div class="dc-ph ${strip ? 'strip' : 'n' + n}">${phs}</div>${strip ? `<span class="dc-left" aria-hidden="true"></span>` : ''}</div>
+          <div class="dc-b"><div class="dc-top"><p class="tl-dc-h">${icon('flower')}日常 · ${d.cs.length} 站</p><a class="dc-map" href="#map/day-${d.k}">${icon('map')}地圖</a></div>
+          <div class="dtl">${rows}</div>${d.cs.length > 3 ? `<button class="dtl-more" data-more="${d.k}">還有 ${d.cs.length - 3} 個地方 ${icon('back', 'dn')}</button>` : ''}</div></div></div>`;
+      }
+      const rows = d.cs.map(c => `<div class="dtl-row"><span class="dtl-t">${fmtTime(c.ts)}</span><span class="dtl-n"><a href="#c/${c.id}">${esc(cleanName(c.placeName))}</a></span>${chipsOf(c)}</div>`).join('');
+      return `<div class="tl-row tl-dayrow" data-dk="${d.k}">${timelineDate(d.ts)}<div class="tl-daycard"><div class="dc-top"><p class="tl-dc-h">${icon('flower')}日常 · ${d.cs.length} 站</p><a class="dc-map" href="#map/day-${d.k}">${icon('map')}地圖</a></div><div class="dtl">${rows}</div></div></div>`;
+    }).join('')}</div></section>`).join('');
     $('#dlist').innerHTML = h;
     bindVchips($('#dlist'), allAud);
     $('#dlist').querySelectorAll('[data-more]').forEach(b => b.onclick = () => { const card = b.closest('.dcard'); const open = card.classList.toggle('open'); b.innerHTML = open ? `收起 ${icon('back', 'up')}` : `還有 ${byK[b.dataset.more].cs.length - 3} 個地方 ${icon('back', 'dn')}`; });
     $('#dlist').querySelectorAll('[data-dph]').forEach(b => b.onclick = () => { const d = byK[b.dataset.dph]; viewer(d.ph[+b.dataset.i], d.ph, { oneStar: true }); });
+    $('#dlist').querySelectorAll('.tl-capcard [data-cap]').forEach(b => b.onclick = () => viewCapsule(b.dataset.cap));
+    fillMemThumbs($('#dlist'), capsOpened);
     // 左右滑的那一排：右下角「+N」＝右邊還有幾張沒看到
     $('#dlist').querySelectorAll('.dc-ph.strip').forEach(st => {
       const badge = st.parentElement.querySelector('.dc-left'), n = st.children.length;
@@ -802,7 +821,7 @@ async function dailyView() {
     sb.querySelectorAll('a').forEach(a => a.addEventListener('click', () => closeSheet()));
     bindVchips(sb, allAud);
   };
-  if (cs.length) drawDays();
+  if (timeline.length) drawDays();
   if ($('#dmv')) $('#dmv').onclick = () => {
     // 用月曆正在看的那個月
     const [y, m] = dailyYM, did = dailyId(new Date(y, m, 1)), t = ts.find(x => x.id === did);
@@ -815,13 +834,19 @@ async function dailyView() {
     const [y, m] = dailyYM, first = new Date(y, m, 1).getDay(), n = new Date(y, m + 1, 0).getDate(), today = dayKey(Date.now());
     $('#calym').innerHTML = `${y} 年 ${m + 1} 月${icon('back', 'dn')}`;
     let h = '<span></span>'.repeat(first);
-    for (let d = 1; d <= n; d++) { const k = `${y}-${m + 1}-${d}`, o = byK[k]; h += `<button class="cd${o ? ' has-daily' : ''}${o && o.ph.length ? ' has-ph' : ''}${k === today ? ' today' : ''}${k === dailyOpenDay ? ' sel' : ''}" data-dk="${k}" ${o ? '' : 'tabindex="-1"'}><span>${d}</span></button>`; }
+    for (let d = 1; d <= n; d++) { const k = `${y}-${m + 1}-${d}`, o = byK[k], hasCaps = !!capsByDay[k], active = !!o || hasCaps; h += `<button class="cd${o ? ' has-daily' : ''}${o && o.ph.length ? ' has-ph' : ''}${hasCaps ? ' has-cap' : ''}${active ? '' : ' dim'}${k === today ? ' today' : ''}${k === dailyOpenDay ? ' sel' : ''}" data-dk="${k}" ${active ? '' : 'tabindex="-1"'}>${hasCaps ? '<i class="chx"></i>' : ''}<span class="cn">${d}</span></button>`; }
     $('#calgrid').innerHTML = h;
     $('#calgrid').querySelectorAll('.cd').forEach(b => b.onclick = () => openDay(b.dataset.dk));
   };
   const openDay = k => {
-    const o = byK[k];
-    if (!o) { toast('這天沒有日常打卡'); return; }
+    const o = byK[k], caps = capsByDay[k] || [];
+    if (!o) {
+      if (!caps.length) { toast('這天沒有日常打卡'); return; }
+      dailyOpenDay = dailyOpenDay === k ? null : k;
+      drawCal();
+      view.querySelector(`.daily-caprow[data-dk="${k}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
     dailyOpenDay = dailyOpenDay === k ? null : k;
     $('#dayopen').innerHTML = dailyOpenDay ? `<div class="dayopen"><p class="tn-dt">${fmtDate(o.ts)}</p>${o.cs.map(stopRow).join('')}</div>` : '';
     bindVchips($('#dayopen'), allAud);
@@ -830,12 +855,12 @@ async function dailyView() {
   const move = k => { let [y, m] = dailyYM; m += k; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; } dailyYM = [y, m]; drawCal(); };
   view.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => move(+b.dataset.mv));
   $('#caltoday').onclick = () => { const d = new Date(); dailyYM = [d.getFullYear(), d.getMonth()]; drawCal(); };
-  $('#calym').onclick = async () => { const keys = Object.keys(byK); const pick = await ymPicker(dailyYM, keys.map(k => +k.split('-')[0]), keys); if (pick) { dailyYM = pick; drawCal(); } };
+  $('#calym').onclick = async () => { const pick = await ymPicker(dailyYM, dateKeys.map(k => +k.split('-')[0]), dateKeys); if (pick) { dailyYM = pick; drawCal(); } };
   let sx = null; const cb = view.querySelector('.calbox');
   cb.addEventListener('touchstart', e => { sx = e.touches[0].clientX; }, { passive: true });
   cb.addEventListener('touchend', e => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx; sx = null; if (Math.abs(dx) > 50) move(dx < 0 ? 1 : -1); });
   drawCal();
-  if (dailyOpenDay && byK[dailyOpenDay]) { const k = dailyOpenDay; dailyOpenDay = null; openDay(k); }
+  if (dailyOpenDay && (byK[dailyOpenDay] || capsByDay[dailyOpenDay])) { const k = dailyOpenDay; dailyOpenDay = null; openDay(k); }
   // 搜尋地方
   const doSearch = q => {
     q = norm(q.trim());
