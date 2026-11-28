@@ -722,7 +722,7 @@ async function trips() {
 const TS = '廣广東东門门灣湾區区縣县鎮镇島岛華华龍龙陽阳園园館馆場场橋桥樓楼寶宝雲云臺台張张長长興兴會会實实學学習习鄉乡莊庄鳳凤羅罗蘭兰嶺岭漢汉灘滩濱滨澤泽溝沟灣湾峽峡嶼屿關关廟庙橋桥塔塔麗丽飯饭館馆廳厅樂乐歡欢遊游戲戏機机車车站站鐵铁線线號号記记國国際际紀纪貓猫鳥鸟魚鱼雞鸡麵面點点燒烧鍋锅湯汤飲饮茶茶廈厦層层廠厂業业樹树葉叶園园瀑瀑灑洒湖湖鳴鸣聖圣書书畫画藝艺術术體体育育醫医藥药銀银貨货買买賣卖網网絡络電电視视廣广蘇苏滬沪閩闽粵粤贛赣豐丰潁颖臨临濟济陝陕藏藏農农豬猪馬马驛驿遼辽寧宁圳圳灣湾門门澳澳緣缘綠绿紅红藍蓝黃黄邊边濟济';
 const T2S = {}; for (let i = 0; i < TS.length; i += 2) T2S[TS[i]] = TS[i + 1];
 const norm = s => [...(s || '').toLowerCase()].map(ch => T2S[ch] || ch).join('');
-// ---------- 日常分頁：月曆＋搜尋；「日子」一天一天看、「地方」看常去哪裡 ----------
+// ---------- 日常分頁：月曆＋搜尋＋一天一天的時間軸（常去的地方在地圖頁「看全部」） ----------
 let dailyYM = null, dailyOpenDay = null;
 const cleanName = n => (n || '').replace(/（模擬）/g, '');
 async function dailyView() {
@@ -740,7 +740,6 @@ async function dailyView() {
   // 地方：同名合在一起
   const places = {};
   cs.forEach(c => { const n = cleanName(c.placeName); (places[n] = places[n] || { name: n, cs: [] }).cs.push(c); });
-  const mode = getSetting('dailyMode', 'days'), period = getSetting('dailyPeriod', 'month');
   if (!dailyYM) { const d = new Date(); dailyYM = [d.getFullYear(), d.getMonth()]; }
   const curDaily = ts.map(t => t.id).sort().pop();
   view.innerHTML = `
@@ -755,8 +754,7 @@ async function dailyView() {
       <div class="callegend"><span><i class="lg-dot ring"></i>有打卡</span><span><i class="lg-dot ph"></i>有拍照</span><button class="linkbtn" id="caltoday">回到本月</button></div>
     </section>
     <div id="dayopen"></div>
-    ${cs.length ? `<div class="tl-top"><div class="seg dseg" role="group" aria-label="怎麼看"><button data-dm="days" class="${mode === 'days' ? 'on' : ''}">日子</button><button data-dm="places" class="${mode === 'places' ? 'on' : ''}">地方</button><button data-dm="map" class="${mode === 'map' ? 'on' : ''}">地圖</button></div></div>
-      <div id="dlist"></div>
+    ${cs.length ? `<div id="dlist"></div>
       <div class="row" style="margin-top:18px"><button class="linkbtn" id="dmv">${icon('trip')}把某幾天搬進旅行包</button></div>` : '<p class="empty">還沒有日常打卡。打卡頁的開關在「日常」時打卡，就會出現在這裡。</p>'}
     </div>`;
   const stopRow = c => `<a class="tn-stop" href="#c/${c.id}"><span class="dstop-dot"></span><span class="tn-tm">${fmtTime(c.ts)}</span><b>${esc(cleanName(c.placeName))}</b>${chipsOf(c)}${vis[c.id].length ? `<span class="dstop-ph">${icon('camera')}${vis[c.id].length}</span>` : ''}</a>`;
@@ -795,16 +793,6 @@ async function dailyView() {
       st.addEventListener('scroll', upd, { passive: true }); upd();
     });
   };
-  // 「地方」：常去排行
-  const drawPlaces = () => {
-    const now = new Date(), start = period === 'month' ? new Date(now.getFullYear(), now.getMonth(), 1).getTime() : period === 'year' ? new Date(now.getFullYear(), 0, 1).getTime() : 0;
-    const list = Object.values(places).map(p => ({ ...p, n: p.cs.filter(c => c.ts >= start).length, first: p.cs[0].ts })).filter(p => p.n).sort((a, b) => b.n - a.n || b.first - a.first);
-    const max = list.length ? list[0].n : 1, newSince = start || Date.now() - 30 * 86400e3;
-    $('#dlist').innerHTML = `${perSeg()}
-      ${list.length ? `<div class="dplaces">${list.map(p => `<button class="dplace" data-pl="${esc(p.name)}"><span class="dp-n">${esc(p.name)}${p.first >= newSince ? '<em>新</em>' : ''}</span><span class="dp-bar"><i style="width:${Math.max(6, Math.round(p.n / max * 100))}%"></i></span><span class="dp-c">${p.n} 次</span></button>`).join('')}</div>` : '<p class="muted sm">這段時間還沒有日常打卡。</p>'}`;
-    view.querySelectorAll('[data-pp]').forEach(b => b.onclick = () => { setSetting('dailyPeriod', b.dataset.pp); rerender(); });
-    view.querySelectorAll('[data-pl]').forEach(b => b.onclick = () => placeSheet(b.dataset.pl));
-  };
   const placeSheet = name => {
     const p = places[name]; if (!p) return;
     const list = [...p.cs].reverse(), ph = list.flatMap(c => vis[c.id]);
@@ -814,19 +802,7 @@ async function dailyView() {
     sb.querySelectorAll('a').forEach(a => a.addEventListener('click', () => closeSheet()));
     bindVchips(sb, allAud);
   };
-  // 「地圖」：蜂蜜光暈，跟「地方」用同一個期間
-  const perSeg = () => `<div class="seg sm dper" role="group" aria-label="期間">${[['month', '這個月'], ['year', '今年'], ['all', '全部']].map(([k2, t]) => `<button data-pp="${k2}" class="${period === k2 ? 'on' : ''}">${t}</button>`).join('')}</div>`;
-  const drawMap = async () => {
-    const now = new Date(), start = period === 'month' ? new Date(now.getFullYear(), now.getMonth(), 1).getTime() : period === 'year' ? new Date(now.getFullYear(), 0, 1).getTime() : 0;
-    const pts = cs.filter(c => c.ts >= start && c.lat != null);
-    $('#dlist').innerHTML = `${perSeg()}<div id="mapbox"></div><div id="mapnote"></div><p class="muted sm" style="margin:8px 2px 0">越常去的地方越亮。拉近之後點中間的小點，可以看去過幾次。</p>`;
-    view.querySelectorAll('[data-pp]').forEach(b => b.onclick = () => { setSetting('dailyPeriod', b.dataset.pp); rerender(); });
-    if (!pts.length) { $('#mapbox').innerHTML = '<p class="muted sm">這段時間還沒有日常打卡。</p>'; return; }
-    curMap = await mountMap($('#mapbox'), await addBees(pts), { style: mapStyle(), height: 380, seed: 'daily-all', day: null, noPills: true, wantMe: true, merge: true, cluster: true,
-      onPick: c => placeSheet(cleanName(c.placeName)) });
-  };
-  if (cs.length) { mode === 'places' ? drawPlaces() : mode === 'map' ? await drawMap() : drawDays(); }
-  view.querySelectorAll('[data-dm]').forEach(b => b.onclick = () => { setSetting('dailyMode', b.dataset.dm); rerender(); });
+  if (cs.length) drawDays();
   if ($('#dmv')) $('#dmv').onclick = () => {
     // 用月曆正在看的那個月
     const [y, m] = dailyYM, did = dailyId(new Date(y, m, 1)), t = ts.find(x => x.id === did);
@@ -1027,7 +1003,23 @@ function footStats(cs, kind, nTrips = 0) {
   const top = kind === 'daily' ? places.filter(p => p.lat != null).sort((a, b) => (b._n || 1) - (a._n || 1) || b.ts - a.ts).slice(0, 3) : [];
   return `<div class="stats fstats" style="grid-template-columns:repeat(${tiles.length},minmax(0,1fr))">${tiles.map(([n, l, a]) => `<div><b ${a || ''}>${n}</b>${l}</div>`).join('')}</div>
     ${together ? `<p class="ftog">${mkIcon({ adult: true, kid: true }, 30)}<span>孩子也一起去的地方 <b>${together}</b> 個</span></p>` : ''}
-    ${top.length ? `<div class="ftop"><p class="lbl">最常去的地方</p>${top.map((p, i) => `<button class="ftop-i" data-top="${i}"><span class="ftop-n">${i + 1}</span><b>${esc(placeLabel(p.placeName))}</b><small>${p._n || 1} 次</small></button>`).join('')}</div>` : ''}`;
+    ${top.length ? `<div class="ftop"><div class="ftop-h"><p class="lbl">最常去的地方</p><button class="linkbtn" id="ftopall">看全部 ›</button></div>${top.map((p, i) => `<button class="ftop-i" data-top="${i}"><span class="ftop-n">${i + 1}</span><b>${esc(placeLabel(p.placeName))}</b><small>${p._n || 1} 次</small></button>`).join('')}</div>` : ''}`;
+}
+// 常去的地方：完整排行（全部日常可以切換這個月／今年／全部）
+function rankSheet(cs, periods) {
+  let per = periods ? getSetting('dailyPeriod', 'month') : 'all';
+  if (!['month', 'year', 'all'].includes(per)) per = 'month';
+  const draw = () => {
+    const now = new Date(), start = per === 'month' ? new Date(now.getFullYear(), now.getMonth(), 1).getTime() : per === 'year' ? new Date(now.getFullYear(), 0, 1).getTime() : 0;
+    const list = mergeDaily(cs.filter(c => c.ts >= start && c.lat != null), 100, true).sort((a, b) => (b._n || 1) - (a._n || 1) || b.ts - a.ts);
+    const max = list.length ? list[0]._n || 1 : 1;
+    sb.innerHTML = `<h2 class="h2" style="margin-top:0">常去的地方</h2>
+      ${periods ? `<div class="seg sm dper" role="group" aria-label="期間">${[['month', '這個月'], ['year', '今年'], ['all', '全部']].map(([k, t]) => `<button data-pp="${k}" class="${per === k ? 'on' : ''}">${t}</button>`).join('')}</div>` : ''}
+      ${list.length ? `<p class="muted sm" style="margin:0 0 4px">${list.length} 個地方・共 ${list.reduce((a, p) => a + (p._n || 1), 0)} 次</p><div class="dplaces">${list.map((p, i) => `<button class="dplace" data-rk="${i}"><span class="dp-n">${esc(placeLabel(p.placeName))}</span><span class="dp-bar"><i style="width:${Math.max(6, Math.round((p._n || 1) / max * 100))}%"></i></span><span class="dp-c">${p._n || 1} 次</span></button>`).join('')}</div>` : '<p class="muted sm">這段時間還沒有日常打卡。</p>'}`;
+    sb.querySelectorAll('[data-pp]').forEach(b => b.onclick = () => { per = b.dataset.pp; setSetting('dailyPeriod', per); draw(); });
+    sb.querySelectorAll('[data-rk]').forEach(b => b.onclick = () => { const p = list[+b.dataset.rk]; if ((p._n || 1) > 1) visitsSheet(p); else { closeSheet(); location.hash = `c/${p.id}`; } });
+  };
+  openSheet(''); draw();
 }
 // 城市數：每一小塊區域查一次城市名（查過會存在手機裡，下次不用網路）
 async function fillCities(cs) {
@@ -1072,13 +1064,14 @@ async function mapView(id) {
   // ---- 足跡總覽：真實地圖＋統計，不分天、不連線（每天怎麼走，到旅行包的那一天看） ----
   const md = ts => { const d = new Date(ts); return `${d.getMonth() + 1}/${d.getDate()}`; };
   const pick = c => { if (c._n > 1) visitsSheet(c); else location.hash = `c/${c.id}`; };
-  const page = async ({ back, backTxt, title, sub, cs, kind, nTrips, opt }) => {
+  const page = async ({ back, backTxt, title, sub, cs, kind, nTrips, periods, opt }) => {
     view.innerHTML = `<div class="foothead"><a class="btn sm" href="${back}" aria-label="回去">${icon('back')}${esc(backTxt)}</a><div><b>${esc(title)}</b><small>${sub}</small></div></div>
       ${demoBar()}
       <div id="mapbox"></div>
       ${footStats(cs, kind, nTrips)}${keyNote}`;
     bindDemoBar();
     view.querySelectorAll('[data-top]').forEach(b => b.onclick = () => pick(mergeDaily(cs, 100, true).filter(p => p.lat != null).sort((a, b) => (b._n || 1) - (a._n || 1) || b.ts - a.ts)[+b.dataset.top]));
+    if ($('#ftopall')) $('#ftopall').onclick = () => rankSheet(cs, !!periods);
     const top = $('#mapbox').getBoundingClientRect().top + window.scrollY;
     const below = kind === 'daily' ? 250 : 150;
     curMap = await mountMap($('#mapbox'), cs, { style: mapStyle(), height: Math.max(280, Math.min(560, window.innerHeight - top - below)), day: null, noPills: true, wantMe: true, merge: true, group: true, ...opt });
@@ -1122,7 +1115,7 @@ async function mapView(id) {
   ts.forEach(t => { trips[t.id] = { name: t.name }; if (!isDaily(t)) tripPal[t.id] = palOfTrip(t); });
   const nTrips = daily ? 0 : new Set(all.map(c => c.tripId)).size;
   const span = all.length ? (new Date(all[0].ts).getFullYear() === new Date(all[all.length - 1].ts).getFullYear() ? `${new Date(all[0].ts).getFullYear()}` : `${new Date(all[0].ts).getFullYear()} – ${new Date(all[all.length - 1].ts).getFullYear()}`) : '還沒有打卡';
-  await page({ back: daily ? '#daily' : '#trips', backTxt: daily ? '日常' : '旅行包', title: daily ? '全部日常' : '全部旅行', sub: span, cs: all, kind: daily ? 'daily' : 'trips', nTrips,
+  await page({ back: daily ? '#daily' : '#trips', backTxt: daily ? '日常' : '旅行包', title: daily ? '全部日常' : '全部旅行', sub: span, cs: all, kind: daily ? 'daily' : 'trips', nTrips, periods: daily,
     opt: { seed: 'all-' + what, cluster: true, trips, tripPal, onTrip: tid => { location.hash = `map/${tid}`; }, onPick: c => { if (!isDailyC(c)) location.hash = `map/${c.tripId}`; else pick(c); } } });
 }
 
