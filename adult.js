@@ -11,7 +11,7 @@ import { makeVideo, estimate, canMakeVideo, selectVisuals, layoutItems, stopDura
 import { TRACKS } from './music.js';
 import { $, esc, toast, confirmDlg, inputDlg, fmtTime, fmtDate, dayKey, uid, icon } from './ui.js';
 import { loadBee, beeSVG } from './bee.js';
-import { kidHead, planMerge, applyMerge, isKidOnlyTrip, absorbTrip } from './kidsync.js';
+import { kidHead, planMerge, applyMerge, findStrays, moveStrays, kidData, myStopsOn, copyToMine, addBees } from './kidsync.js';
 import { initCapsule, hiveView, createView, checkDue, capsuleDays, memHTML, fillMemThumbs, viewCapsule, openedCapsules, anniversaryToday, dismissAnniversary, yearWord } from './capsule.js';
 
 const view = $('#view'), sheet = $('#sheet'), sb = $('#sheetbody');
@@ -23,17 +23,20 @@ const ou = b => { if (!b) return ''; const u = URL.createObjectURL(b); urls.push
 const freeUrls = () => { urls.forEach(u => URL.revokeObjectURL(u)); urls = []; };
 
 // ---------- 路由 ----------
-let curMap = null;
+let curMap = null, mapFrom = null;
 async function route(keepScroll = false) {
   freeUrls(); view.classList.remove('pcpage', 'pc-editing');
   if (curMap) { curMap.destroy(); curMap = null; }
   const [r, id] = location.hash.slice(1).split('/');
   const dailyId = (id || '').startsWith('daily-');
-  const tab = r === 'daily' || (r === 'trip' && dailyId) ? 'daily' : r === 'trip' || r === 'c' || r === 'trips' || r === 'card' || r === 'video' || r === 'hive' || r === 'capsule' ? 'trips' : r === 'settings' ? 'settings' : r === 'map' ? 'map' : 'home';
+  const tab = r === 'daily' || (r === 'trip' && dailyId) ? 'daily' : r === 'trip' || r === 'c' || r === 'trips' || r === 'card' || r === 'video' || r === 'hive' || r === 'capsule' ? 'trips' : r === 'settings' ? 'settings' : r === 'kids' ? 'kids' : r === 'map' ? (mapFrom || 'trips') : 'home';
   document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('on', a.dataset.t === tab));
+  const kt = document.querySelector('#tabs [data-t="kids"]'); if (kt) kt.hidden = !(kidOn() && getKids().length);
+  if (r !== 'map') mapFrom = tab === 'daily' ? 'daily' : tab === 'kids' ? 'kids' : 'trips';
   try {
     if (r === 'trips') await trips();
     else if (r === 'daily') await dailyView();
+    else if (r === 'kids') await kidsView();
     else if (r === 'trip' && dailyId_(id)) { location.replace('#daily'); return; }
     else if (r === 'trip') await trip(id);
     else if (r === 'c') await checkin(id);
@@ -177,9 +180,7 @@ async function receiveKid(file) {
   const who = head.kid ? head.kid.name : '孩子';
   const todo = items.filter(x => x.kind !== 'dup'), dup = items.length - todo.length;
   const nm = s => esc(cleanName(s || ''));
-  const label = x => x.kind === 'join' ? `${icon('flower')}跟你們同一站${nm(x.target.placeName) !== nm(x.k.placeName) ? `：${nm(x.target.placeName)}` : ''}`
-    : x.kind === 'more' ? `補 ${x.ms.length} 個照片、影片或聲音`
-    : `只有 ${esc(who)}・放進「${esc(x.trip.name)}」`;
+  const label = x => x.kind === 'more' ? `補 ${x.ms.length} 個照片、影片或聲音` : '新的一站';
   let html = `<h2 class="h2" style="margin-top:0">${icon('honey')}${esc(who)} 傳來 ${items.length} 站</h2>`;
   if (!todo.length) html += `<p>這些都已經收過了，不用再合併。</p><div class="row"><button class="btn main" data-a="x">知道了</button></div>`;
   else {
@@ -192,24 +193,24 @@ async function receiveKid(file) {
       html += `<label class="place"><input type="checkbox" data-i="${items.indexOf(x)}" checked><span class="pl-t"><span>${fmtTime(ts)} <b>${nm(x.k.placeName)}</b>${nf && x.kind !== 'more' ? ` <span class="kr-n">${icon('camera')}${nf}</span>` : ''}</span><small>${label(x)}</small></span></label>`;
     });
     html += `</div>${dup ? `<p class="muted sm">${dup} 站已經收過，自動略過</p>` : ''}
-      <p class="muted sm">只會新增，不會改掉你原本的資料。</p>
+      <p class="muted sm">會放在「孩子」分頁，不會跟你的旅行混在一起，也不會改掉你的資料。想要的照片、錄音，再從孩子頁加到你的那一天。</p>
       <div class="row"><button class="btn" data-a="x">取消</button><button class="btn main" data-a="ok" id="krok"></button></div>`;
   }
   const ov = overlay(html);
   const boxes = [...ov.querySelectorAll('[data-i]')];
-  const cnt = () => { const n = boxes.filter(b => b.checked).length, b = ov.querySelector('#krok'); if (b) { b.textContent = n ? `合併 ${n} 站` : '沒有勾選'; b.disabled = !n; } };
+  const cnt = () => { const n = boxes.filter(b => b.checked).length, b = ov.querySelector('#krok'); if (b) { b.textContent = n ? `加入 ${n} 站` : '沒有勾選'; b.disabled = !n; } };
   boxes.forEach(b => b.onchange = cnt); cnt();
   ov.onclick = async e => {
     const a = e.target.closest('[data-a]')?.dataset.a;
     if (a === 'x') ov.remove();
     if (a === 'ok') {
       const pick = boxes.filter(b => b.checked).map(b => items[+b.dataset.i]);
-      e.target.disabled = true; e.target.textContent = '合併中…';
+      e.target.disabled = true; e.target.textContent = '加入中…';
       const r = await applyMerge(head, pick);
       ov.remove();
-      if (r.bad) await confirmDlg(`合併了 ${r.stops} 站、${r.files} 個照片影片聲音，有 ${r.bad} 個檔案沒存進去。可以請${esc(who)}再傳一次，已經收過的會自動略過。`, '知道了', '');
-      else toast(`已合併 ${who} 的 ${r.stops} 站${r.files ? `、${r.files} 個照片影片聲音` : ''}`);
-      rerender();
+      if (r.bad) await confirmDlg(`加入了 ${r.stops} 站、${r.files} 個照片影片聲音，有 ${r.bad} 個檔案沒存進去。可以請${esc(who)}再傳一次，已經收過的會自動略過。`, '知道了', '');
+      else toast(`已加入 ${who} 的 ${r.stops} 站${r.files ? `、${r.files} 個照片影片聲音` : ''}`);
+      location.hash = 'kids';
     }
   };
 }
@@ -558,8 +559,6 @@ async function fillPostcard(el, tripId) {
 // ---------- 旅行包：月曆＋時間軸 ----------
 let calYM = null;            // 月曆正在看的 [年, 月(0-11)]
 const openNodes = new Set(); // 時間軸上拉開的旅行包
-let kidView = false;          // 按了「孩子」：只看孩子的打卡
-const kidOnlyC = c => isKid(c) && !isAdult(c);
 const WKS = ['日', '一', '二', '三', '四', '五', '六'];
 const md = ts => { const d = new Date(ts); return `${d.getMonth() + 1}/${d.getDate()}`; };
 const FLOWER_BG = `<svg class="cd-fl" viewBox="-10 -10 20 20" aria-hidden="true">${[0, 72, 144, 216, 288].map(g => `<circle cx="${(5 * Math.cos((g - 90) * Math.PI / 180)).toFixed(1)}" cy="${(5 * Math.sin((g - 90) * Math.PI / 180)).toFixed(1)}" r="4.7"/>`).join('')}<circle r="3.2" class="cd-fl-c"/></svg>`;
@@ -582,21 +581,18 @@ async function trips() {
     }
   });
   all.forEach(x => x.cs.forEach(c => {
-    const o = mk(dayKey(c.ts));
-    if (isKid(c) && !o.kid) o.kid = beeColorOf(c) || '#F7B500';
-    if (isDaily(x.t)) { o.dly = true; if (isAdult(c)) o.daily = true; }
+    if (!isDaily(x.t) || !isAdult(c)) return;
+    const o = mk(dayKey(c.ts)); o.dly = true; o.daily = true;
   }));
   const capDays = await capsuleDays();
   Object.entries(capDays).forEach(([k, n]) => { mk(k).cap = +n || 1; });
-  const anyKid = Object.values(marks).some(o => o.kid);
-  if (!anyKid) kidView = false;
   if (!calYM) { const d = new Date(); calYM = [d.getFullYear(), d.getMonth()]; }
   const curTrip = mode === 'trip' && nodes.find(n => n.t.id === act && !isDaily(n.t));
   // 時間軸：旅行包一項（放在出發那天）；日常每天一項；依月份分段，新的在上面
   const entries = [];
-  nodes.forEach(n => { if (!kidView || n.cs.some(isKid)) entries.push({ kind: 'trip', ts: n.cs.length ? n.a : n.t.createdAt, n }); });
+  nodes.forEach(n => entries.push({ kind: 'trip', ts: n.cs.length ? n.a : n.t.createdAt, n }));
   const capsOpened = await openedCapsules();
-  if (!kidView) capsOpened.forEach(c => entries.push({ kind: 'cap', ts: c.openedAt, c }));
+  capsOpened.forEach(c => entries.push({ kind: 'cap', ts: c.openedAt, c }));
   entries.sort((p, q) => q.ts - p.ts);
   const months = [];
   entries.forEach(e => { const d = new Date(e.ts), mk = `${d.getFullYear()}-${d.getMonth()}`; let m = months[months.length - 1]; if (!m || m.mk !== mk) months.push(m = { mk, y: d.getFullYear(), m: d.getMonth(), items: [] }); m.items.push(e); });
@@ -608,12 +604,12 @@ async function trips() {
     <div class="srchbar" id="srchbar" hidden><span>${icon('search')}</span><input id="tq" type="search" placeholder="搜尋旅行名稱或地點，例如：雲南、廣州" autocomplete="off"><button class="linkbtn" id="tqx">取消</button></div>
     <p class="muted sm" id="tqnone" hidden>找不到符合的旅行包</p>
     <section class="calbox">
-      <div class="calhead"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="選擇年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></div>
+      <div class="calhead c3"><span class="calsp"></span><span class="calmid"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="選擇年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></span><a class="calmap" href="#map/all-trip" aria-label="全部足跡地圖">${icon('map')}</a></div>
       <div class="calgrid wk">${WKS.map(w => `<span>${w}</span>`).join('')}</div>
-      <div class="calgrid c2${kidView ? ' kidv' : ''}" id="calgrid"></div>
-      <div class="callegend c2"><span><i class="lg2"><i class="chl c0 s e"></i></i>旅行</span><span><i class="lg2"><i class="cdot"></i></i>日常</span>${anyKid ? `<span><i class="lg2"><i class="cbee" style="--kc:${marks[Object.keys(marks).find(k => marks[k].kid)].kid}">${beeSVG('')}</i></i>孩子</span>` : ''}<span><i class="lg2"><i class="chx"></i></i>膠囊</span><span><i class="lg2 ring"></i>今天</span><button class="linkbtn" id="caltoday">回到本月</button></div>
+      <div class="calgrid c2" id="calgrid"></div>
+      <div class="callegend c2"><span><i class="lg2"><i class="chl c0 s e"></i></i>旅行</span><span><i class="lg2"><i class="cdot"></i></i>日常</span><span><i class="lg2"><i class="chx"></i></i>膠囊</span><span><i class="lg2 ring"></i>今天</span><button class="linkbtn" id="caltoday">回到本月</button></div>
     </section>
-    ${entries.length ? `<div class="tl-top"><h2 class="h2" style="margin:0">時間軸</h2><span class="tl-btns">${anyKid ? `<button class="btn sm kidv${kidView ? ' on' : ''}" id="kidv" aria-pressed="${kidView}">${beeSVG('kv-bee')}孩子</button>` : ''}${tripCount ? `<button class="btn sm" id="expall">${icon('flower')}全部展開</button>` : ''}</span></div>
+    ${entries.length ? `<div class="tl-top"><h2 class="h2" style="margin:0">時間軸</h2><span class="tl-btns">${tripCount ? `<button class="btn sm" id="expall">${icon('flower')}全部展開</button>` : ''}</span></div>
       ${months.map(mo => { const dn = dailyOf(mo.y, mo.m); return `<section class="tl-sec">
         <div class="tl-sec-h"><h3>${mo.y} 年 ${mo.m + 1} 月</h3></div>
         <div class="tl-rows">${mo.items.map(e => entryHTML(e, curTrip)).join('')}</div></section>`; }).join('')}`
@@ -632,10 +628,8 @@ async function trips() {
         hl = `<i class="chl c${o.tc}${prev ? '' : ' s'}${next ? '' : ' e'}"></i>`;
       }
       const cap = o?.cap ? (o.cap > 1 ? '<i class="chx two1"></i><i class="chx two2"></i>' : '<i class="chx"></i>') : '';
-      const dot = o?.daily ? `<i class="cdot${o.kid ? ' l' : ''}"></i>` : '';
-      const bee = o?.kid ? `<i class="cbee${o.daily ? ' r' : ''}" style="--kc:${o.kid}">${beeSVG('')}</i>` : '';
-      const dim = kidView && !o?.kid;
-      h += `<button class="cd2${o ? ' on' : ''}${k === today ? ' today' : ''}${dim ? ' dim' : ''}" data-dk="${k}" ${o ? '' : 'tabindex="-1"'} aria-label="${m + 1}月${d}日">${hl}${cap}<span class="cn">${d}</span>${dot}${bee}</button>`;
+      const dot = o?.daily ? '<i class="cdot"></i>' : '';
+      h += `<button class="cd2${o ? ' on' : ''}${k === today ? ' today' : ''}" data-dk="${k}" ${o ? '' : 'tabindex="-1"'} aria-label="${m + 1}月${d}日">${hl}${cap}<span class="cn">${d}</span>${dot}</button>`;
     }
     $('#calgrid').innerHTML = h;
     $('#calgrid').querySelectorAll('.cd2').forEach(b => b.onclick = () => goDay(b.dataset.dk));
@@ -680,7 +674,6 @@ async function trips() {
   };
   view.querySelectorAll('.tn-head').forEach(b => b.onclick = () => { const el = b.closest('.tnode'); setOpen(el, !el.classList.contains('open')); });
   if ($('#new')) $('#new').onclick = async () => { await goTrip(); rerender(); };
-  if ($('#kidv')) $('#kidv').onclick = () => { kidView = !kidView; rerender(); };
   const syncExp = () => { const b = $('#expall'); if (!b) return; const ns = [...view.querySelectorAll('.tnode')].filter(e => e.querySelector('.tn-pc')); const allOpen = ns.length && ns.every(e => e.classList.contains('open')); b.innerHTML = allOpen ? `${icon('back', 'up')}全部收起` : `${icon('flower')}全部展開`; b.dataset.all = allOpen ? '1' : ''; };
   if ($('#expall')) $('#expall').onclick = () => { const open = !$('#expall').dataset.all; view.querySelectorAll('.tnode').forEach(e => { if (e.querySelector('.tn-pc') || !open) setOpen(e, open); }); syncExp(); };
   view.querySelectorAll('.tn-head').forEach(b => b.addEventListener('click', syncExp));
@@ -756,7 +749,7 @@ async function dailyView() {
     <div id="dsres"></div>
     <div id="dmain">
     <section class="calbox">
-      <div class="calhead"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="選擇年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></div>
+      <div class="calhead c3"><span class="calsp"></span><span class="calmid"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="選擇年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></span><a class="calmap" href="#map/all-daily" aria-label="全部足跡地圖">${icon('map')}</a></div>
       <div class="calgrid wk">${WKS.map(w => `<span>${w}</span>`).join('')}</div>
       <div class="calgrid" id="calgrid"></div>
       <div class="callegend"><span><i class="lg-dot ring"></i>有打卡</span><span><i class="lg-dot ph"></i>有拍照</span><button class="linkbtn" id="caltoday">回到本月</button></div>
@@ -829,7 +822,7 @@ async function dailyView() {
     $('#dlist').innerHTML = `${perSeg()}<div id="mapbox"></div><div id="mapnote"></div><p class="muted sm" style="margin:8px 2px 0">越常去的地方越亮。拉近之後點中間的小點，可以看去過幾次。</p>`;
     view.querySelectorAll('[data-pp]').forEach(b => b.onclick = () => { setSetting('dailyPeriod', b.dataset.pp); rerender(); });
     if (!pts.length) { $('#mapbox').innerHTML = '<p class="muted sm">這段時間還沒有日常打卡。</p>'; return; }
-    curMap = await mountMap($('#mapbox'), pts, { style: mapStyle(), height: 380, seed: 'daily-all', day: null, noPills: true, wantMe: true, merge: true, cluster: true,
+    curMap = await mountMap($('#mapbox'), await addBees(pts), { style: mapStyle(), height: 380, seed: 'daily-all', day: null, noPills: true, wantMe: true, merge: true, cluster: true,
       onPick: c => placeSheet(cleanName(c.placeName)) });
   };
   if (cs.length) { mode === 'places' ? drawPlaces() : mode === 'map' ? await drawMap() : drawDays(); }
@@ -892,17 +885,8 @@ function nodeHTML(n, travelling) {
   const daily = isDaily(n.t), open = openNodes.has(n.t.id) || travelling && !openNodes.size;
   if (open) openNodes.add(n.t.id);
   const days = [], idx = {};
-  n.cs.forEach((c, i) => { if (kidView && !isKid(c)) return; const k = dayKey(c.ts); if (!(k in idx)) { idx[k] = days.length; days.push({ k, ts: c.ts, items: [] }); } days[idx[k]].items.push([c, i + 1]); });
+  n.cs.forEach((c, i) => { const k = dayKey(c.ts); if (!(k in idx)) { idx[k] = days.length; days.push({ k, ts: c.ts, items: [] }); } days[idx[k]].items.push([c, i + 1]); });
   const stopA = ([c, num]) => `<a class="tn-stop" href="#c/${c.id}"><svg width="30" height="30" viewBox="-24 -24 48 48" aria-hidden="true">${markerSVG(0, 0, c, num, 1.3, '', null, 'center')}</svg><span class="tn-tm">${fmtTime(c.ts)}</span><b>${esc(c.placeName.replace(/（模擬）/g, ''))}</b></a>`;
-  // 只有孩子去的站：收成一行，點開才看到
-  const dayStops = items => {
-    if (kidView) return items.map(stopA).join('');
-    const main = items.filter(([c]) => !kidOnlyC(c)), ko = items.filter(([c]) => kidOnlyC(c));
-    if (!ko.length) return main.map(stopA).join('');
-    const names = [...new Set(ko.flatMap(([c]) => (c.kidIds || []).map(id => kidById(id)?.name).filter(Boolean)))].join('、') || '孩子';
-    const col = beeColorOf(ko[0][0]) || '#F7B500';
-    return main.map(stopA).join('') + `<details class="tn-kids"><summary><i class="cbee" style="--kc:${col}">${beeSVG('')}</i>${esc(names)}自己去了 ${ko.length} 個地方</summary>${ko.map(stopA).join('')}</details>`;
-  };
   const range = n.cs.length ? (daily ? `${days.length} 天有紀錄` : `${md(n.a)}${dayKey(n.a) !== dayKey(n.b) ? '–' + md(n.b) : ''} · ${days.length} 天`) : '還沒有打卡';
   return `<div class="tnode${daily ? ' daily' : ''}${open ? ' open' : ''}" data-node="${n.t.id}">
     <button class="tn-head" aria-expanded="${open}"><span class="tn-cover">${icon(daily ? 'flower' : 'trip')}</span>
@@ -910,7 +894,7 @@ function nodeHTML(n, travelling) {
     <div class="tn-body">
       ${n.cs.length ? `<a class="tn-pc" href="#card/${n.t.id}" data-pc="${n.t.id}"><span class="tn-pc-load">${icon('flower')}明信片準備中…</span></a>` : ''}
       ${days.map((d, i) => `<div class="tn-day" data-dk="${d.k}"><p class="tn-dt">${daily ? '' : `第 ${i + 1} 天 · `}${fmtDate(d.ts)}</p>
-        ${dayStops(d.items)}</div>`).join('')}
+        ${d.items.map(stopA).join('')}</div>`).join('')}
       <div class="tn-act"><a class="btn sm" href="#trip/${n.t.id}">打開</a>${n.cs.length ? `<a class="btn sm" href="#map/${n.t.id}">${icon('map')}地圖</a><a class="btn sm" href="#card/${n.t.id}">${icon('flower')}明信片</a><a class="btn sm" href="#video/${n.t.id}">${icon('play')}短片</a>` : ''}</div>
     </div></div>`;
 }
@@ -974,6 +958,7 @@ const mapLegend = () => !kidOn() ? '' : `<div class="legend mk-legend"><span>${m
 
 // 把地圖放進 box，並綁好天數切換、當天清單、「正常／可愛」與「連起來」
 async function attachMap(box, checkins, height, seed, daily = false, extra = {}) {
+  checkins = await addBees(checkins); // 地圖上：你的花上有孩子的蜜蜂
   const info = dayInfo(checkins);
   let day = info.days.length ? defaultDay(info) : null, connected = false;
   const tabs = $('#daytabs'), list = $('#daylist'), conn = $('#conn');
@@ -1052,7 +1037,7 @@ async function mapView(id) {
     view.innerHTML = `<div class="row between"><h1 class="h1">採蜜地圖</h1><span class="muted sm">${cs.length} 個地點</span></div>
       <div class="focuscard"><a class="btn sm" href="#daily" id="backall" aria-label="回日常">${icon('back')}日常</a><div><b>${fmtDate(cs[0].ts)}</b><small>這天的日常・${cs.length} 個地方</small></div></div>
       <div id="mapbox"></div>${keyNote}`;
-    curMap = await mountMap($('#mapbox'), cs, { style: mapStyle(), height: fitH(250), seed: id, day: null, noPills: true, wantMe: true, onPick: c => { location.hash = `c/${c.id}`; } });
+    curMap = await mountMap($('#mapbox'), await addBees(cs), { style: mapStyle(), height: fitH(250), seed: id, day: null, noPills: true, wantMe: true, onPick: c => { location.hash = `c/${c.id}`; } });
     if (cs.length > 1) setTimeout(() => { try { curMap.connect(); } catch (e) {} }, 500);
     showMe();
     return;
@@ -1072,7 +1057,7 @@ async function mapView(id) {
     if (isDaily(t)) {
       // 日常：不編號、不連線，用蜂蜜光暈看常去的地方
       $('#conn').remove(); $('#daytabs').remove(); $('#daylist').remove();
-      curMap = await mountMap($('#mapbox'), cs, { style: mapStyle(), height: fitH(250), seed: t.id, day: null, noPills: true, wantMe: true, merge: true, cluster: true,
+      curMap = await mountMap($('#mapbox'), await addBees(cs), { style: mapStyle(), height: fitH(250), seed: t.id, day: null, noPills: true, wantMe: true, merge: true, cluster: true,
         onPick: c => { if (c._n > 1) visitsSheet(c); else location.hash = `c/${c.id}`; } });
       showMe();
       return;
@@ -1085,29 +1070,36 @@ async function mapView(id) {
     return;
   }
 
-  // ---- 全部足跡 ----
-  const who = kidOn() ? getSetting('mapWho', 'all') : 'all';
-  const whoSeg = kidOn() ? `<div class="seg whoseg" role="group" aria-label="看誰的足跡">${[['all', '全部'], ['adult', '大人'], ['kid', '孩子']].map(([k, n]) => `<button data-who="${k}" class="${who === k ? 'on' : ''}">${n}</button>`).join('')}</div>` : '';
-  const byWho = cs => (who === 'adult' ? cs.filter(isAdult) : who === 'kid' ? cs.filter(isKid) : cs);
+  // ---- 全部足跡：旅行／日常／孩子，一次看一種（從哪個分頁進來就先看哪一種） ----
+  const kidsOK = kidOn() && getKids().length;
+  let what = (id || '').startsWith('all-') ? id.slice(4) : (mapFrom === 'daily' ? 'daily' : mapFrom === 'kids' ? 'kid' : 'trip');
+  if (what === 'kid' && !kidsOK) what = 'trip';
   const ts = await store.listTrips();
   let all = [];
-  for (const t of ts) all = all.concat(await store.listCheckins(t.id));
-  all = byWho(all);
+  if (what === 'kid') {
+    const kids = getKids(), sel = kids.find(k => k.id === getSetting('kidsSel')) || kids[0];
+    all = (await kidData(sel)).cs.map(c => ({ ...c, kid: true, adult: false, ts: c.kidTs || c.ts }));
+  } else for (const t of ts.filter(t => (what === 'daily') === isDaily(t))) all = all.concat((await store.listCheckins(t.id)).filter(isAdult));
   all.sort((p, q) => p.ts - q.ts);
   const trips = {}, tripPal = {};
   ts.forEach(t => { trips[t.id] = { name: t.name }; if (!isDaily(t)) tripPal[t.id] = palOfTrip(t); });
-  view.innerHTML = `<div class="row between"><h1 class="h1">採蜜地圖</h1><span class="muted sm">${all.length} 個地點</span></div>
+  const back = mapFrom === 'daily' ? '#daily' : mapFrom === 'kids' ? '#kids' : '#trips';
+  const seg = `<div class="seg whoseg" role="group" aria-label="看哪一種">${[['trip', '旅行'], ['daily', '日常'], ...(kidsOK ? [['kid', '孩子']] : [])].map(([k, n]) => `<a href="#map/all-${k}" class="segbtn${what === k ? ' on' : ''}">${n}</a>`).join('')}</div>`;
+  const tip = what === 'trip' ? '一朵大花是一趟旅行，點它就只看那一趟。' : what === 'daily' ? '日常是蜂蜜光暈，越常去越亮；放大到街道時，點中間的小點可以看去過幾次。' : '孩子去過的地方。';
+  view.innerHTML = `<div class="row between"><a class="back" href="${back}" style="margin:0">${icon('back')}回去</a><span class="muted sm">${all.length} 個地點</span></div>
+    <h1 class="h1" style="margin:6px 0 8px">全部足跡</h1>
     ${demoBar()}
-    ${whoSeg ? `<div class="mapbar">${whoSeg}</div>` : ''}
+    <div class="mapbar">${seg}</div>
     <div id="mapbox"></div>
-    <p class="muted sm" style="margin:10px 2px 0">大黃花是一趟旅行，點它就只看那一趟。日常是蜂蜜光暈，越常去越亮；拉遠時收成蜂蜜罐，放大到街道時，點中間的小點可以看去過幾次。</p>
-    ${mapLegend()}${keyNote}`;
+    <p class="muted sm" style="margin:10px 2px 0">${tip}</p>${keyNote}`;
   bindDemoBar();
-  view.querySelectorAll('[data-who]').forEach(b => b.onclick = () => { setSetting('mapWho', b.dataset.who); rerender(); });
   const top = $('#mapbox').getBoundingClientRect().top + window.scrollY;
-  curMap = await mountMap($('#mapbox'), all, { style: mapStyle(), height: fitH(top + 150), seed: 'all-footprints', day: null, noPills: true, wantMe: true, merge: true, cluster: true, trips, tripPal,
-    onTrip: tid => { location.hash = `map/${tid}`; },
-    onPick: c => { if (!isDailyC(c)) location.hash = `map/${c.tripId}`; else if (c._n > 1) visitsSheet(c); else location.hash = `c/${c.id}`; } });
+  const opt = what === 'kid'
+    ? { style: mapStyle(), height: fitH(top + 110), seed: 'all-kid', day: null, noPills: true, wantMe: true, onPick: () => { location.hash = 'kids'; } }
+    : { style: mapStyle(), height: fitH(top + 110), seed: 'all-' + what, day: null, noPills: true, wantMe: true, merge: true, cluster: true, trips, tripPal,
+      onTrip: tid => { location.hash = `map/${tid}`; },
+      onPick: c => { if (!isDailyC(c)) location.hash = `map/${c.tripId}`; else if (c._n > 1) visitsSheet(c); else location.hash = `c/${c.id}`; } };
+  curMap = await mountMap($('#mapbox'), what === 'kid' ? all : await addBees(all), opt);
   showMe();
 }
 
@@ -1542,6 +1534,138 @@ async function cardView(id) {
   gen();
 }
 
+// ---------- 孩子分頁：孩子的打卡、照片、錄音（不跟大人的旅行混在一起） ----------
+let kidsYM = null;
+async function kidsView() {
+  const kids = getKids();
+  if (!kids.length) { view.innerHTML = '<h1 class="h1">孩子的打卡</h1><p class="empty">還沒有設定孩子。到「設定 → 孩子」新增。</p>'; return; }
+  let kid = kids.find(k => k.id === getSetting('kidsSel')) || kids[0];
+  const { cs, media, boxId } = await kidData(kid);
+  const strays = await findStrays();
+  const mode = getSetting('kidsMode', 'stops');
+  const col = colorHex(kid), stopOf = id => cs.find(c => c.id === id);
+  const tsOf = c => c.kidTs || c.ts;
+  const vis = c => (media[c.id] || []).filter(m => m.kind !== 'audio' && (m.thumb || m.kind === 'photo'));
+  const auds = c => (media[c.id] || []).filter(m => m.kind === 'audio');
+  const rate = c => (c.kidRate || {})[kid.id] || {};
+  const stars = c => { const s = rate(c).s || 0; return s ? `<span class="kp-st">${'★'.repeat(s)}<i>${'★'.repeat(3 - s)}</i></span>` : ''; };
+  const feel = c => (rate(c).f && FEELS[rate(c).f] ? `<span class="kp-feel">${FEELS[rate(c).f]}</span>` : '');
+  const days = [], byK = {};
+  cs.forEach(c => { const k = dayKey(tsOf(c)); if (!byK[k]) { byK[k] = { k, ts: tsOf(c), cs: [], ph: [], au: [] }; days.push(byK[k]); } byK[k].cs.push(c); byK[k].ph.push(...vis(c)); byK[k].au.push(...auds(c)); });
+  days.reverse();
+  if (!kidsYM) { const d = days[0] ? new Date(days[0].ts) : new Date(); kidsYM = [d.getFullYear(), d.getMonth()]; }
+  const allPh = days.flatMap(d => d.ph);
+  const md2 = t => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()}`; };
+  const wk = t => `週${'日一二三四五六'[new Date(t).getDay()]}`;
+  const beeI = (cls = '') => `<i class="cbee ${cls}">${beeSVG('')}</i>`;
+  view.innerHTML = `<div class="kidpage" style="--kc:${col}">
+    <div class="row between" style="margin-top:4px"><h1 class="h1 kp-h1" style="margin:0">${beeI('h')}${esc(kid.name)}的打卡</h1></div>
+    ${kids.length > 1 ? `<div class="seg kp-who" role="group" aria-label="看哪個孩子">${kids.map(k => `<button data-kid="${esc(k.id)}" class="${k.id === kid.id ? 'on' : ''}" style="--kc:${colorHex(k)}">${esc(k.name)}</button>`).join('')}</div>` : ''}
+    ${strays.n ? `<div class="note kabsorb">${icon('honey')}<div><b>有 ${strays.n} 站孩子的打卡還混在你的旅行裡</b><p>是之前合併進去的，或孩子用你的手機蓋的。搬回孩子頁，你的旅行包和日常就只剩你自己的。建議先做一次備份。</p><button class="btn sm main" id="strays">${icon('check')}搬回孩子頁</button></div></div>` : ''}
+    <section class="calbox">
+      <div class="calhead c3"><span class="calsp"></span><span class="calmid"><button class="calnav" data-mv="-1" aria-label="上個月">${icon('back')}</button><button class="calym" id="calym" aria-label="年月"></button><button class="calnav nx" data-mv="1" aria-label="下個月">${icon('back')}</button></span><a class="calmap" href="#map/all-kid" aria-label="地圖：孩子去過的地方">${icon('map')}</a></div>
+      <div class="calgrid wk">${WKS.map(w => `<span>${w}</span>`).join('')}</div>
+      <div class="calgrid c2" id="calgrid"></div>
+      <div class="callegend c2"><span><i class="lg2">${beeI()}</i>有打卡</span><span><i class="lg2"><i class="cdot ph"></i></i>有拍照</span><span><i class="lg2 ring"></i>今天</span><button class="linkbtn" id="caltoday">回到最近</button></div>
+    </section>
+    ${cs.length ? `<div class="tl-top"><div class="seg dseg" role="group" aria-label="怎麼看"><button data-km="stops" class="${mode === 'stops' ? 'on' : ''}">打卡</button><button data-km="photos" class="${mode === 'photos' ? 'on' : ''}">照片</button><button data-km="voice" class="${mode === 'voice' ? 'on' : ''}">錄音</button></div></div>
+      <div id="klist"></div>` : `<p class="empty">還沒有${esc(kid.name)}的打卡。${kid.age === 'big' ? `請${esc(kid.name)}在自己的手機點左上角的蜜蜂 →「傳給爸媽」，再到「設定 → 備份 → 加入孩子的打卡」。` : '用爸媽的手機刷孩子的吊飾蓋章，就會出現在這裡。'}</p>`}
+  </div>`;
+  // 月曆：孩子有打卡的日子放小蜜蜂（有拍照的再多一個小點）
+  const drawCal = () => {
+    const [y, m] = kidsYM, first = new Date(y, m, 1).getDay(), n = new Date(y, m + 1, 0).getDate(), today = dayKey(Date.now());
+    $('#calym').innerHTML = `${y} 年 ${m + 1} 月`;
+    let h = '<span></span>'.repeat(first);
+    for (let d = 1; d <= n; d++) {
+      const k = `${y}-${m + 1}-${d}`, o = byK[k];
+      h += `<button class="cd2${o ? ' on' : ''}${k === today ? ' today' : ''}" data-dk="${k}" ${o ? '' : 'tabindex="-1"'}><span class="cn">${d}</span>${o && o.ph.length ? '<i class="cdot ph l"></i>' : ''}${o ? beeI(o.ph.length ? 'r' : '') : ''}</button>`;
+    }
+    $('#calgrid').innerHTML = h;
+    $('#calgrid').querySelectorAll('.cd2.on').forEach(b => b.onclick = () => {
+      if (mode !== 'stops') { setSetting('kidsMode', 'stops'); kidsGo = b.dataset.dk; rerender(); return; }
+      const el = view.querySelector(`[data-day="${b.dataset.dk}"]`); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+    });
+  };
+  const move = k => { let [y, m] = kidsYM; m += k; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; } kidsYM = [y, m]; drawCal(); };
+  view.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => move(+b.dataset.mv));
+  $('#caltoday').onclick = () => { const d = days[0] ? new Date(days[0].ts) : new Date(); kidsYM = [d.getFullYear(), d.getMonth()]; drawCal(); };
+  drawCal();
+  view.querySelectorAll('[data-kid]').forEach(b => b.onclick = () => { setSetting('kidsSel', b.dataset.kid); kidsYM = null; rerender(); });
+  view.querySelectorAll('[data-km]').forEach(b => b.onclick = () => { setSetting('kidsMode', b.dataset.km); rerender(true); });
+  if ($('#strays')) $('#strays').onclick = async () => {
+    if (!(await confirmDlg(`會把 ${strays.n} 站孩子的打卡（和孩子拍的照片、錄音）從你的旅行搬回孩子頁。你自己的打卡和照片不會動。建議先做一次備份。要繼續嗎？`, '搬回孩子頁'))) return;
+    toast('搬移中…');
+    try { await moveStrays(); toast('好了，你的旅行包和日常只剩你自己的'); rerender(); } catch (e) { toast('搬移失敗：' + e.message); }
+  };
+  if (!cs.length) return;
+  // 加到我的那一天：複製一份，孩子頁的還在
+  const add = async m => {
+    const s = stopOf(m.checkinId);
+    if (!s || s.tripId !== boxId) { toast('這一站本來就在你的旅行裡'); return false; }
+    return addToMine(m, s, kid);
+  };
+  const L = $('#klist');
+  if (mode === 'stops') {
+    let h = '', lastM = '';
+    days.forEach(d => {
+      const dt = new Date(d.ts), mk = `${dt.getFullYear()} 年 ${dt.getMonth() + 1} 月`;
+      if (mk !== lastM) { h += `<h3 class="dmonth">${mk}</h3>`; lastM = mk; }
+      const rows = d.cs.map(c => `<div class="dtl-row"><span class="dtl-t">${fmtTime(tsOf(c))}</span><span class="dtl-n">${esc(cleanName(c.placeName))}</span>${stars(c)}${feel(c)}${auds(c).length ? `<button class="kp-au" data-au="${auds(c)[0].id}" aria-label="聽錄音">${icon('mic')}</button>` : ''}</div>`).join('');
+      if (d.ph.length) {
+        const n = d.ph.length, strip = n >= 4;
+        const phs = d.ph.map((m, i) => `<button class="dc-tile" data-dph="${d.k}" data-i="${i}" aria-label="看照片"><img src="${ou(m.thumb || m.blob)}" alt="" loading="lazy"${fpos(m)}>${m.kind === 'video' ? `<span class="vbadge">${icon('play')}</span>` : ''}${m.added && m.added.length ? `<span class="kp-ok">${icon('check')}</span>` : ''}</button>`).join('');
+        h += `<div class="dcard kp-card" data-day="${d.k}"><div class="dc-phw"><div class="dc-ph ${strip ? 'strip' : 'n' + n}">${phs}</div></div>
+          <div class="dc-b"><div class="dc-top"><p class="dc-d">${beeI()}${md2(d.ts)} <span>${wk(d.ts)}・${d.cs.length} 個地方</span></p></div><div class="dtl">${rows}</div></div></div>`;
+      } else h += `<div class="dcard kp-card nophoto" data-day="${d.k}"><div class="dc-b"><div class="dc-top"><p class="dc-d">${beeI()}${md2(d.ts)} <span>${wk(d.ts)}・${d.cs.length} 個地方</span></p></div><div class="dtl">${rows}</div></div></div>`;
+    });
+    L.innerHTML = h;
+    L.querySelectorAll('[data-dph]').forEach(b => b.onclick = () => { const d = byK[b.dataset.dph]; viewer(d.ph[+b.dataset.i], d.ph, { add }); });
+    L.querySelectorAll('[data-au]').forEach(b => b.onclick = () => playKidAudio(b.dataset.au, media, cs, add));
+    if (kidsGo) { const el = L.querySelector(`[data-day="${kidsGo}"]`); kidsGo = null; if (el) setTimeout(() => el.scrollIntoView({ block: 'center' }), 50); }
+  } else if (mode === 'photos') {
+    L.innerHTML = allPh.length ? days.filter(d => d.ph.length).map(d => `<p class="kp-day">${beeI()}${md2(d.ts)} ${wk(d.ts)}<small>${d.ph.length} 個</small></p><div class="kp-grid">${d.ph.map(m => `<button class="kp-tile" data-ph="${allPh.indexOf(m)}"><img src="${ou(m.thumb || m.blob)}" alt="" loading="lazy"${fpos(m)}>${m.kind === 'video' ? `<span class="vbadge">${icon('play')}</span>` : ''}${m.added && m.added.length ? `<span class="kp-ok">${icon('check')}</span>` : ''}</button>`).join('')}</div>`).join('') : '<p class="empty">還沒有照片或影片。</p>';
+    L.querySelectorAll('[data-ph]').forEach(b => b.onclick = () => viewer(allPh[+b.dataset.ph], allPh, { add }));
+  } else {
+    const any = days.some(d => d.au.length);
+    L.innerHTML = any ? days.filter(d => d.au.length).map(d => `<p class="kp-day">${beeI()}${md2(d.ts)} ${wk(d.ts)}</p>${d.au.map(m => { const c = stopOf(m.checkinId); return `<div class="kp-voice"><div class="kp-vt"><b>${esc(cleanName(c.placeName))}</b><small>${fmtTime(tsOf(c))}${m.q ? `・${esc(m.q)}` : ''}</small></div><audio controls preload="none" src="${ou(m.blob)}"></audio>${c.tripId === boxId ? `<button class="btn sm${m.added && m.added.length ? '' : ' main'}" data-addau="${m.id}">${m.added && m.added.length ? `${icon('check')}已加入` : `${icon('plus')}加到我的`}</button>` : ''}</div>`; }).join('')}`).join('') : '<p class="empty">還沒有錄音。</p>';
+    L.querySelectorAll('[data-addau]').forEach(b => b.onclick = async () => { const m = Object.values(media).flat().find(x => x.id === b.dataset.addau); if (m && (await add(m))) rerender(true); });
+  }
+}
+let kidsGo = null;
+// 打卡列表上的小麥克風：直接播放
+function playKidAudio(id, media, cs, add) {
+  const m = Object.values(media).flat().find(x => x.id === id); if (!m) return;
+  const c = cs.find(x => x.id === m.checkinId), u = URL.createObjectURL(m.blob);
+  const ov = overlay(`<h2 class="h2" style="margin-top:0">${icon('mic')}${esc(cleanName(c.placeName))}</h2>${m.q ? `<p class="muted sm">${esc(m.q)}</p>` : ''}<audio controls autoplay src="${u}" style="width:100%"></audio>
+    <div class="row"><button class="btn" data-a="x">關閉</button>${add ? `<button class="btn main" data-a="add">${icon('plus')}加到我的那一天</button>` : ''}</div>`);
+  ov.onclick = async e => { const a = e.target.closest('[data-a]')?.dataset.a; if (a === 'x') { ov.remove(); URL.revokeObjectURL(u); } if (a === 'add' && (await add(m))) { ov.remove(); rerender(true); } };
+}
+// 選要加到你的哪一站（預設時間最近的那站）；那天沒有打卡就新增一站
+async function addToMine(m, s, kid) {
+  const ts = s.kidTs || s.ts, mine = await myStopsOn(ts);
+  return new Promise(res => {
+    const ov = overlay(`<h2 class="h2" style="margin-top:0">加到你的哪一站？</h2>
+      <p class="muted sm">${esc(kid.name)}在 ${fmtTime(ts)}・${esc(cleanName(s.placeName))}。會複製一份過去，${esc(kid.name)}這邊的還在。</p>
+      <div class="places">${mine.map((c, i) => `<label class="place"><input type="radio" name="tg" value="${c.id}" ${i === 0 ? 'checked' : ''}><span class="pl-t"><span>${fmtTime(c.ts)} <b>${esc(cleanName(c.placeName))}</b></span></span></label>`).join('')}
+      <label class="place"><input type="radio" name="tg" value="" ${mine.length ? '' : 'checked'}><span class="pl-t"><span>${icon('plus')}在那天新增一站</span><small>地點：${esc(cleanName(s.placeName))}</small></span></label></div>
+      <div class="row"><button class="btn" data-a="x">取消</button><button class="btn main" data-a="ok">${icon('check')}加進去</button></div>`);
+    ov.onclick = async e => {
+      const a = e.target.closest('[data-a]')?.dataset.a;
+      if (a === 'x') { ov.remove(); res(false); }
+      if (a !== 'ok') return;
+      const tid = ov.querySelector('input[name="tg"]:checked')?.value || '';
+      if (tid) {
+        const ex = (await store.listMedia(tid)).filter(x => x.kind !== 'audio');
+        if (m.kind !== 'audio' && ex.length >= MAX) { toast(`這一站已經有 ${MAX} 個照片影片了`); return; }
+        if (m.kind === 'video' && ex.filter(x => x.kind === 'video').length >= MAX_VIDEOS) { toast(`這一站影片最多 ${MAX_VIDEOS} 支`); return; }
+      }
+      e.target.disabled = true;
+      try { await copyToMine(m, s, tid || null); ov.remove(); toast('加好了！可以拿去做短片和明信片'); res(true); }
+      catch (err) { toast('加不進去：' + err.message); e.target.disabled = false; }
+    };
+  });
+}
+
 // ---------- 單一旅行包 ----------
 async function trip(id) {
   const t = await store.getTrip(id);
@@ -1553,7 +1677,6 @@ async function trip(id) {
   const kid = meta.filter(x => isKid(x.c)).length;
   view.innerHTML = `<a class="back" href="#trips">${icon('back')}所有旅行包</a>
     <div class="row between"><h1 class="h1">${esc(t.name)}</h1>${isDaily(t) ? '' : '<button class="btn sm" id="ren">改名</button>'}</div>
-    ${!isDaily(t) && isKidOnlyTrip(meta.map(x => x.c)) ? `<div class="note kabsorb">${icon('honey')}<div><b>這一包只有${esc(kidById((meta[0].c.kidIds || [])[0])?.name || '孩子')}的打卡</b><p>可能是從孩子的備份整包還原進來的。按一下就併進你同一天的旅行或日常，這一包會消失。</p><button class="btn sm main" id="absorb">${icon('check')}併進我的旅行</button></div></div>` : ''}
     ${meta.length ? `<a class="tn-pc big" href="#card/${id}" id="trippc"><span class="tn-pc-load">${icon('flower')}明信片準備中…</span></a>` : `<div class="stats"><div><b>0</b>地點</div><div><b>0</b>天</div><div><b>${vis}</b>照片影片</div><div><b>${kid}</b>孩子的章</div></div>`}
     <div class="dayseg" id="daytabs"></div>
     <div id="mapbox"></div>
@@ -1580,12 +1703,6 @@ async function trip(id) {
     t.dayThemes = { ...(t.dayThemes || {}), [b.dataset.day]: tid };
     await store.saveTrip(t); toast('已更新這天的花園主題'); rerender();
   });
-  if ($('#absorb')) $('#absorb').onclick = async () => {
-    if (!(await confirmDlg('會把這些站併進你同一天的旅行包或日常：同一個地點、30 分鐘內的會合成同一站，照片也一起搬過去。這一包會消失。建議先做一次備份。要繼續嗎？', '併進去'))) return;
-    toast('合併中…');
-    try { const r = await absorbTrip(id); toast(`好了：${r.joined} 站跟你合成同一站，${r.moved} 站放進那天的旅行或日常`); location.hash = 'trips'; }
-    catch (e) { toast('合併失敗：' + e.message); }
-  };
   if ($('#ren')) $('#ren').onclick = async () => { const n = await inputDlg('旅程名稱', t.name); if (n) { t.name = n; t.nameAuto = false; await store.saveTrip(t); rerender(); } };
   if ($('#act')) $('#act').onclick = () => { resumeTrip(id); toast(`繼續旅行：之後的打卡會放進「${t.name}」`); rerender(); };
   if ($('#mv')) $('#mv').onclick = () => moveDaysDlg(t, days);
@@ -1731,7 +1848,9 @@ function viewer(x, list, opt = {}) {
     u = URL.createObjectURL(src);
     const media = m.kind === 'video' && !focusing ? `<video src="${u}" controls playsinline autoplay></video>` : `<img src="${u}" alt="">`;
     const dot = focusing && f ? `<i class="pv-dot" style="left:${pct(f.x)};top:${pct(f.y)}"></i>` : '';
-    const bar = focusing
+    const bar = opt.add
+      ? (m.added && m.added.length ? `<button class="pv-pill" data-a="add">${icon('check')}已加到我的・再加一次</button>` : `<button class="pv-pill main" data-a="add">${icon('plus')}加到我的那一天</button>`)
+      : focusing
       ? `<button class="pv-pill" data-a="fclear">清除</button><button class="pv-pill main" data-a="fok">${icon('check')}完成</button>`
       : `<button class="pv-ic" data-a="focus" aria-label="設定焦點" ${m.kind === 'audio' ? 'disabled' : ''}>${icon('focus')}<small>焦點</small></button>
          ${m.kind === 'audio' ? '<span class="pv-star-sp"></span>' : `<button class="pv-star${m.star ? ' on' : ''}" data-a="star" aria-pressed="${m.star ? 'true' : 'false'}" aria-label="${m.star ? '取消精選' : '設為精選'}">${icon(m.star ? 'star' : 'star-o')}</button>`}
@@ -1769,6 +1888,7 @@ function viewer(x, list, opt = {}) {
     if (!a) { if (e.target.closest('.pv-ph, .pv-bar, .pv-dots')) return; if (focusing) endFocus(false); else close(); return; }
     if (a === 'close') { if (focusing && opt.focusOnly) { endFocus(false); return; } close(); }
     if (a === 'focus') startFocus();
+    if (a === 'add' && opt.add) { if (await opt.add(L[i])) { changed = true; draw(); } }
     if (a === 'fclear') { f = null; draw(); }
     if (a === 'fok') {
       const m = L[i];
@@ -1863,7 +1983,7 @@ async function settings() {
       <div class="bkinfo" id="bkinfo">讀取中…</div>
       <div class="row"><button class="btn main sm" id="expnew">${icon('check')}備份新增的</button><button class="btn sm" id="expall">完整備份</button></div>
       <div class="row"><label class="btn sm file">從備份還原<input type="file" id="imp" multiple></label>${kidOn() ? `<label class="btn sm file">${icon('honey')}加入孩子的打卡<input type="file" id="kimp"></label>` : ''}</div>
-      ${kidOn() ? '<p class="muted sm">「加入孩子的打卡」：孩子傳來的檔案或孩子手機的備份都可以，會讓你勾選要加哪些。<b>只會加進來，不會覆蓋你的資料。</b></p>' : ''}
+      ${kidOn() ? '<p class="muted sm">「加入孩子的打卡」：孩子傳來的檔案或孩子手機的備份都可以。會放在「孩子」分頁，不跟你的旅行混在一起。<b>只會加進來，不會覆蓋你的資料。</b></p>' : ''}
       <p class="muted sm">存的時候選「儲存到檔案」，放在 iCloud 雲碟的「蜂采備份」資料夾。還原時可以把資料夾裡的檔案一次全選。做過完整備份後，之前的小檔案就可以刪掉。</p>
     </section>
     <section class="sec"${kidOn() ? '' : ' hidden'}>

@@ -11,7 +11,7 @@ import { esc, dayKey } from './ui.js';
 import { ITEMS } from './themes.js';
 import { isKid, isAdult } from './store.js';
 import { BEE } from './bee.js';
-import { beeColorOf } from './kids.js';
+import { beeColorOf, kidById, colorHex } from './kids.js';
 
 const f1 = n => (Math.round(n * 10) / 10).toString();
 const shortName = s => { const t = String(s || '').replace(/（模擬）/g, ''); return t.length > 8 ? t.slice(0, 7) + '…' : t; };
@@ -96,6 +96,13 @@ function flowerShape(x, y, r) {
 // photo：照片網址（data:），放進花心或蜜蜂的圓圈裡
 // 孩子的蜜蜂用他自己的顏色
 const kb = c => { const col = beeColorOf(c); return col ? `<g class="kcb" style="--kc:${col}">${BEE}</g>` : BEE; };
+// 你的花上有幾個孩子也在場，就畫幾隻蜜蜂（每隻用那個孩子的顏色，最多 3 隻）
+const BEE_POS = [[0, 0], [-10, -2], [9, 5]];
+function beesOn(c, x, y, s, sc) {
+  const cols = [...new Set((c.kidIds || []).map(id => kidById(id)).filter(Boolean).map(k => colorHex(k)))].slice(0, 3);
+  if (cols.length < 2) return `<g transform="translate(${f1(x)} ${f1(y)}) scale(${f1(sc)})">${kb(c)}</g>`;
+  return cols.map((col, i) => `<g transform="translate(${f1(x + BEE_POS[i][0] * s)} ${f1(y + BEE_POS[i][1] * s)}) scale(${f1(sc * .85)})"><g class="kcb" style="--kc:${col}">${BEE}</g></g>`).reverse().join('');
+}
 export function markerSVG(x, y, c, num, s = 1, cls = '', photo = null, numStyle = 'badge') {
   const kid = isKid(c), adult = isAdult(c);
   let g = '';
@@ -104,7 +111,7 @@ export function markerSVG(x, y, c, num, s = 1, cls = '', photo = null, numStyle 
     if (adult) g += flowerShape(x, y, 15 * s).replace(/class="mk-center"/, 'class="mk-photo-ring"').replace(/<circle[^>]*class="mk-hi"\/>/, '');
     else g += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(pr + 2.6 * s)}" class="mk-kidring"/>`;
     g += `<clipPath id="${id}"><circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(pr)}"/></clipPath><image href="${photo}" x="${f1(x - pr)}" y="${f1(y - pr)}" width="${f1(pr * 2)}" height="${f1(pr * 2)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${id})"/><circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(pr)}" class="mk-photo-edge"/>`;
-    if (kid) g += `<g transform="translate(${f1(x + 11 * s)} ${f1(y - 11 * s)}) scale(${f1(.62 * s)})">${kb(c)}</g>`;
+    if (kid) g += beesOn(c, x + 11 * s, y - 11 * s, s, .62 * s);
     return `<g class="mk ${cls}" style="transform-origin:${f1(x)}px ${f1(y)}px">${g}</g>`;
   }
   if (numStyle === 'center' && num != null) {
@@ -112,7 +119,7 @@ export function markerSVG(x, y, c, num, s = 1, cls = '', photo = null, numStyle 
     if (adult) {
       g += flowerShape(x, y, 14 * s).replace(/<circle[^>]*class="mk-hi"\/>/, '').replace(/r="([\d.]+)" class="mk-center"/, `r="${f1(7.6 * s)}" class="mk-center-num"`);
       g += `<text x="${f1(x)}" y="${f1(y)}" dy=".36em" class="mk-num" style="font-size:${f1((String(num).length > 1 ? 8.4 : 10) * s)}px">${num}</text>`;
-      if (kid) g += `<g transform="translate(${f1(x + 12 * s)} ${f1(y - 12 * s)}) scale(${f1(.62 * s)})">${kb(c)}</g>`;
+      if (kid) g += beesOn(c, x + 12 * s, y - 12 * s, s, .62 * s);
     } else {
       g += `<ellipse cx="${f1(x)}" cy="${f1(y + 11 * s)}" rx="${f1(8 * s)}" ry="${f1(2.6 * s)}" class="mk-shadow"/><g transform="translate(${f1(x)} ${f1(y + 2 * s)}) scale(${f1(1.05 * s)})">${kb(c)}</g>`;
       g += `<circle cx="${f1(x + 11 * s)}" cy="${f1(y + 11 * s)}" r="${f1(7.2 * s)}" class="mk-badge"/><text x="${f1(x + 11 * s)}" y="${f1(y + 11 * s)}" dy=".36em" class="mk-num" style="font-size:${f1(8.4 * s)}px">${num}</text>`;
@@ -129,7 +136,7 @@ export function markerSVG(x, y, c, num, s = 1, cls = '', photo = null, numStyle 
   }
   if (adult) g += flowerShape(x, y, 12 * s);
   if (kid && !adult) g += `<ellipse cx="${f1(x)}" cy="${f1(y + 11 * s)}" rx="${f1(8 * s)}" ry="${f1(2.6 * s)}" class="mk-shadow"/><g transform="translate(${f1(x)} ${f1(y + 2 * s)}) scale(${f1(1.05 * s)})">${kb(c)}</g>`;
-  if (kid && adult) g += `<g transform="translate(${f1(x + 3 * s)} ${f1(y - 6 * s)}) scale(${f1(.8 * s)})">${kb(c)}</g>`;
+  if (kid && adult) g += beesOn(c, x + 3 * s, y - 6 * s, s, .8 * s);
   if (num != null) g += `<circle cx="${f1(x + 11 * s)}" cy="${f1(y + 11 * s)}" r="${f1(6.8 * s)}" class="mk-badge"/><text x="${f1(x + 11 * s)}" y="${f1(y + 11 * s)}" dy=".36em" class="mk-num" style="font-size:${f1(8.4 * s)}px">${num}</text>`;
   return `<g class="mk ${cls}" style="transform-origin:${f1(x)}px ${f1(y)}px">${g}</g>`;
 }

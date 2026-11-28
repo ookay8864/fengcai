@@ -74,7 +74,9 @@ export async function capsuleFromData(c) {
 }
 
 export const LocalStore = {
-  async listTrips() { return (await all('trips')).sort((a, b) => b.createdAt - a.createdAt); },
+  // 旅行包和日常（不含「孩子盒」：大童傳來的打卡放在孩子自己的盒子裡，不跟大人的混在一起）
+  async listTrips() { return (await all('trips')).filter(t => !t.kidbox).sort((a, b) => b.createdAt - a.createdAt); },
+  async listKidBoxes() { return (await all('trips')).filter(t => t.kidbox); },
   getTrip: id => get('trips', id),
   saveTrip: t => put('trips', t),
   async deleteTrip(id) { for (const c of await this.listCheckins(id)) await this.deleteCheckin(c.id); await del('trips', id); },
@@ -240,6 +242,14 @@ export function getMode() {
 }
 export const setMode = m => { try { localStorage.setItem('fc-mode', m); } catch (e) {} };
 export const isDaily = t => !!(t && t.daily);
+// 孩子盒：每個孩子一個，放大童傳回來的打卡（爸媽的畫面看不到，只在「孩子」分頁）
+export const kidBoxId = kidId => `kidbox-${kidId || 'kid'}`;
+export async function ensureKidBox(kid) {
+  const id = kidBoxId(kid && kid.id);
+  let t = await store.getTrip(id);
+  if (!t) { t = { id, kidbox: true, kidId: kid ? kid.id : null, name: `${kid ? kid.name : '孩子'}的打卡`, createdAt: Date.now() }; await store.saveTrip(t); }
+  return t;
+}
 const pad = n => String(n).padStart(2, '0');
 export const dailyId = (d = new Date()) => `daily-${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
 export async function ensureDaily(d = new Date()) {

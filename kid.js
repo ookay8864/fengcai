@@ -1,6 +1,6 @@
 // 蜂采 兒童頁面：小小打卡官
 import { CONFIG, getSetting, setSetting } from './config.js';
-import { store, ensureActiveTrip, askPersist, isKid, findMergeTarget } from './store.js';
+import { store, ensureActiveTrip, askPersist, isKid, isDaily, ensureKidBox } from './store.js';
 import { getPosition, nearby, searchPlaces, testAMap, badgeOf, BADGES, isDemo, distM } from './geo.js';
 import { startRecorder } from './media.js';
 import { $, esc, uid, icon, fmtDate, fmtTime, dayKey } from './ui.js';
@@ -24,7 +24,15 @@ const theme = themeOfKid(me), TH = BUDDY_THEMES[theme], block = theme === 'block
 const KK = me ? me.id : 'kid';
 let reveal = null; // 剛剛蓋章解鎖的夥伴 { idx, isNew }
 // 這個孩子在這支手機上所有的章（跨旅行包）
-async function allMine() { let o = []; for (const t of await store.listTrips()) o = o.concat((await store.listCheckins(t.id)).filter(mine)); return o.sort((a, b) => a.ts - b.ts); }
+async function allMine() { let o = []; for (const t of [...(await store.listTrips()), ...(await store.listKidBoxes())]) o = o.concat((await store.listCheckins(t.id)).filter(mine)); return o.sort((a, b) => (a.kidTs || a.ts) - (b.kidTs || b.ts)); }
+// 孩子的章都存在自己的「孩子盒」，不放進爸媽的旅行包（爸媽的畫面只有爸媽自己的紀錄）。
+// 章本、花園看「這一段」：爸媽旅行中＝這趟出發以後；日常＝這個月。
+async function scope() {
+  const cur = await ensureActiveTrip(), box = await ensureKidBox(me);
+  const now = new Date(), from = isDaily(cur) ? new Date(now.getFullYear(), now.getMonth(), 1).getTime() : (cur.createdAt || 0);
+  const kids = (await allMine()).filter(c => (c.kidTs || c.ts) >= from);
+  return { box, kids, t: { ...box, name: cur.name, dayThemes: { ...(cur.dayThemes || {}), ...(box.dayThemes || {}) } } };
+}
 const todayN = async () => { const dk = dayKey(Date.now()); return (await allMine()).filter(c => dayKey(c.kidTs || c.ts) === dk).length; };
 if (me) { document.body.style.setProperty('--kc', colorHex(me)); document.title = `蜂采・${me.name}的打卡`; }
 
@@ -57,8 +65,7 @@ async function stopRec() {
 // ---------- 首頁：大大的蓋章按鈕 ----------
 async function idle() {
   await stopRec();
-  const t = await ensureActiveTrip();
-  const n = (await store.listCheckins(t.id)).filter(mine).length;
+  const n = (await scope()).kids.length;
   k.innerHTML = `<header class="ktop"><button class="kme" id="kme" aria-label="我的小蜂窩">${beeSVG('kme-bee')}${big && (await pending()).length ? `<i class="kme-n">${(await pending()).length}</i>` : ''}</button><span class="kname">${esc(myName)}</span><button class="kbook" id="gd">${block ? buddySVG('block', 0, 'kbtn-ic') : icon('flower')}${esc(TH.world)}</button><button class="kbook" id="book">${icon('honey')}${big ? '我的足跡' : '章本'} <b>${n}</b></button></header>
     <section class="kcenter">
       <button class="kstamp" id="stamp">${beeSVG('huge')}<span>按我蓋章！</span></button>
@@ -84,8 +91,7 @@ async function go() {
   let list = [];
   try { list = await nearby(pos.lat, pos.lng); } catch (e) {}
   list.sort((a, b) => (a.dist || 0) - (b.dist || 0));
-  const trip = await ensureActiveTrip();
-  const kids = (await store.listCheckins(trip.id)).filter(mine);
+  const { box: trip, kids } = await scope();
   const p = list[0] || { name: `神秘地點 ${kids.length + 1} 號`, type: '', id: '' };
   const last = kids[kids.length - 1];
   if (last && Date.now() - (last.kidTs || last.ts) < 15 * 60e3 && (last.placeName === p.name || (last.lat != null && distM(pos, last) < 60))) return already(pos, p, trip, kids.length);
@@ -121,17 +127,6 @@ async function giveBuddy(c) {
 }
 async function save(pos, p, trip, n) {
   if (!block) await ensureDayTheme(trip, p);
-  // 大人剛在這裡打過卡：把章蓋在同一站（用大人選好的地點名稱）
-  const merge = await findMergeTarget(trip.id, p, pos, 'kid', me && me.id);
-  if (merge) {
-    const ids = [...new Set([...(merge.kidIds || []), ...(me ? [me.id] : [])])];
-    Object.assign(merge, { kid: true, kidIds: ids, kidTs: Date.now() });
-    if (merge.adult == null) merge.adult = merge.by !== 'kid';
-    await giveBuddy(merge);
-    await store.saveCheckin(merge);
-    askPersist();
-    return result(merge, n);
-  }
   const c = { id: uid(), tripId: trip.id, ts: Date.now(), kidTs: Date.now(), lat: pos.lat, lng: pos.lng, acc: pos.acc, placeName: p.name, placeType: p.type || '', poiId: p.id || '', by: 'kid', kid: true, adult: false, kidIds: me ? [me.id] : [], confirmed: false, note: '' };
   await giveBuddy(c);
   await store.saveCheckin(c);
@@ -213,8 +208,7 @@ function lost(msg) {
 // ---------- 我的章本／我的足跡：每個章＝夥伴＋地點；點一下可以改地點 ----------
 async function book() {
   await stopRec();
-  const t = await ensureActiveTrip();
-  const kids = (await store.listCheckins(t.id)).filter(mine);
+  const { t, kids } = await scope();
   const blanks = Math.max(0, (Math.ceil((kids.length + 1) / 3) * 3) - kids.length);
   const days = {}; kids.forEach(c => { const d = dayKey(c.kidTs || c.ts); days[d] = (days[d] || 0) + 1; c._dn = days[d]; });
   k.innerHTML = `<header class="ktop"><button class="kbtn ghost" id="home" style="min-height:46px;font-size:17px">${icon('back')}回去</button><span class="kname" style="text-align:right">${esc(t.name)}</span></header>
@@ -332,8 +326,7 @@ async function dex(back) {
 async function garden(newestId) {
   if (block) return world(newestId);
   await stopRec();
-  const t = await ensureActiveTrip();
-  const kids = (await store.listCheckins(t.id)).filter(mine);
+  const { t, kids } = await scope();
   const n = kids.length, goal = CONFIG.kidGardenGoal;
   const next = Math.max(goal, Math.ceil((n + (n % goal === 0 && n ? 0 : 0)) / goal) * goal || goal);
   const left = next - n;

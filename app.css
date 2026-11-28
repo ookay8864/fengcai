@@ -1157,3 +1157,44 @@ body:has(.pv) .toast{bottom:calc(env(safe-area-inset-bottom) + 150px)}
 .tn-kids[open] summary::before{content:"▾"}
 .tn-kids summary .cbee{position:static;margin:0;width:14px;height:14px}
 .tn-kids summary .cbee .ic{width:14px;height:14px}
+
+/* v0.23.0 底部分頁、月曆地圖小圖示、全部足跡 */
+.tabs a[hidden]{display:none}
+.calhead.c3{display:grid;grid-template-columns:40px 1fr 40px;align-items:center}
+.calhead.c3 .calmid{display:flex;align-items:center;justify-content:center;gap:6px}
+.calmap{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:var(--honey-deep);background:var(--honey-soft);text-decoration:none}
+.calmap .ic{width:22px;height:22px}
+.seg a.segbtn{min-height:40px;padding:0 16px;border-radius:11px;color:var(--ink);font:700 15px var(--font);text-decoration:none;display:inline-flex;align-items:center}
+.seg a.segbtn.on{background:var(--card);box-shadow:0 1px 4px rgba(0,0,0,.12)}
+
+/* v0.23.0 孩子分頁：跟日常一樣的排版，加上孩子的顏色和小蜜蜂 */
+.kidpage .cbee .bee-b{fill:var(--kc)}
+.kp-h1{display:flex;align-items:center;gap:8px}
+.kp-h1 .cbee{position:static;margin:0;width:28px;height:28px}.kp-h1 .cbee .ic{width:28px;height:28px}
+.kp-who{margin:10px 0 2px}
+.kp-who button.on{color:var(--kc);box-shadow:inset 0 -3px 0 var(--kc),0 1px 4px rgba(0,0,0,.12)}
+.kidpage .calbox{border-top:4px solid var(--kc)}
+.kidpage .cd2 .cbee{top:31px;width:12px;height:12px;margin-left:-6px}.kidpage .cd2 .cbee .ic{width:12px;height:12px}
+.kidpage .cd2 .cbee.r{margin-left:1.5px}
+.cdot.ph{background:var(--kc,#E8B98F);opacity:.5}
+.kidpage .cdot.l{margin-left:-7.5px}
+.kidpage .seg.dseg button.on{color:var(--kc);font-weight:800}
+.kp-card{border-left:5px solid var(--kc)}
+.kp-card .dc-d{display:flex;align-items:center;gap:6px}
+.kp-card .dc-d .cbee,.kp-day .cbee{position:static;margin:0;width:16px;height:16px}.kp-card .dc-d .cbee .ic,.kp-day .cbee .ic{width:16px;height:16px}
+.kp-card.nophoto .dc-b{padding-top:12px}
+.kp-card .dtl-row::before{background:var(--kc)}
+.kp-card.flash{animation:tnflash 1.6s}
+.kp-st{color:var(--kc);letter-spacing:1px;font-size:13px;flex:none}.kp-st i{font-style:normal;opacity:.25}
+.kp-feel{font-size:12px;padding:1px 8px;border-radius:99px;border:1.5px solid var(--kc);flex:none}
+.kp-au{margin-left:auto;width:32px;height:32px;border-radius:50%;border:0;background:var(--honey-soft);display:grid;place-items:center;flex:none;cursor:pointer}.kp-au .ic{width:16px;height:16px}
+.kp-ok{position:absolute;left:5px;top:5px;width:22px;height:22px;border-radius:50%;background:var(--kc);color:#fff;display:grid;place-items:center;box-shadow:0 1px 3px rgba(0,0,0,.25)}.kp-ok .ic{width:13px;height:13px}
+.dc-tile{position:relative}
+.kp-day{display:flex;align-items:center;gap:6px;margin:16px 2px 8px;font:800 15px var(--font)}.kp-day small{font-weight:600;color:var(--ink-soft);font-size:12.5px}
+.kp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.kp-tile{position:relative;aspect-ratio:1;padding:0;border:0;border-radius:14px;overflow:hidden;background:var(--line);cursor:pointer;box-shadow:inset 0 0 0 3px var(--kc)}
+.kp-tile img{width:100%;height:100%;object-fit:cover;display:block;border-radius:14px;padding:3px;box-sizing:border-box}
+.kp-voice{background:var(--card);border-radius:16px;box-shadow:var(--shadow);border-left:5px solid var(--kc);padding:10px 12px;margin-bottom:8px;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+.kp-voice audio{grid-column:1/-1;width:100%}
+.kp-vt b{display:block;font-size:15px}.kp-vt small{color:var(--ink-soft);font-size:12.5px}
+.kp-voice .btn{grid-row:1;grid-column:2}
