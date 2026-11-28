@@ -70,7 +70,7 @@ function cardHTML({ c, m }) {
     isKid(c) && !c.confirmed ? '<span class="tag warn">待確認</span>' : '',
     !m.length ? '<span class="tag">待補</span>' : ''
   ].join('');
-  const th = vis.slice(0, 4).map(x => (x.thumb ? `<img src="${ou(x.thumb)}" alt="">` : `<span class="vph">${icon('play')}</span>`)).join('');
+  const th = vis.slice(0, 4).map(x => (x.thumb ? `<img src="${ou(x.thumb)}" alt=""${fpos(x)}>` : `<span class="vph">${icon('play')}</span>`)).join('');
   return `<a class="card" href="#c/${c.id}">
     <div class="card-ic">${icon(b.icon)}</div>
     <div class="card-main">
@@ -693,7 +693,7 @@ async function dailyView() {
       <div class="row" style="margin-top:18px"><button class="linkbtn" id="dmv">${icon('trip')}把某幾天搬進旅行包</button></div>` : '<p class="empty">還沒有日常打卡。打卡頁的開關在「日常」時打卡，就會出現在這裡。</p>'}
     </div>`;
   const stopRow = c => `<a class="tn-stop" href="#c/${c.id}"><span class="dstop-dot"></span><span class="tn-tm">${fmtTime(c.ts)}</span><b>${esc(cleanName(c.placeName))}</b>${chipsOf(c)}${vis[c.id].length ? `<span class="dstop-ph">${icon('camera')}${vis[c.id].length}</span>` : ''}</a>`;
-  const thumbs = (list, n) => list.slice(0, n).map(m => `<img src="${ou(m.thumb || m.blob)}" alt="">`).join('');
+  const thumbs = (list, n) => list.slice(0, n).map(m => `<img src="${ou(m.thumb || m.blob)}" alt=""${fpos(m)}>`).join('');
   const md2 = t => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()}`; };
   const wk = t => `週${'日一二三四五六'[new Date(t).getDay()]}`;
   // 「日子」：有照片的日子是大卡片，沒照片的一行就好
@@ -709,7 +709,7 @@ async function dailyView() {
         const ord = [...d.ph.filter(m => m.star), ...d.ph.filter(m => !m.star)];
         d.ph.splice(0, d.ph.length, ...ord);
         const n = d.ph.length, strip = n >= 4;
-        const phs = d.ph.map((m, i) => `<button class="dc-tile" data-dph="${d.k}" data-i="${i}" aria-label="看照片"><img src="${ou(m.thumb || m.blob)}" alt="" loading="lazy">${m.kind === 'video' ? `<span class="vbadge">${icon('play')}</span>` : ''}</button>`).join('');
+        const phs = d.ph.map((m, i) => `<button class="dc-tile" data-dph="${d.k}" data-i="${i}" aria-label="看照片"><img src="${ou(m.thumb || m.blob)}" alt="" loading="lazy"${fpos(m)}>${m.kind === 'video' ? `<span class="vbadge">${icon('play')}</span>` : ''}</button>`).join('');
         // 地點：小時間軸，先顯示 3 個，其餘收起來
         const rows = d.cs.map((c, i) => `<a class="dtl-row${i >= 3 ? ' more' : ''}" href="#c/${c.id}"><span class="dtl-t">${fmtTime(c.ts)}</span><span class="dtl-n">${esc(cleanName(c.placeName))}</span>${chipsOf(c)}</a>`).join('');
         h += `<div class="dcard" data-day="${d.k}"><div class="dc-phw"><div class="dc-ph ${strip ? 'strip' : 'n' + n}">${phs}</div>${strip ? `<span class="dc-left" aria-hidden="true"></span>` : ''}</div>
@@ -1569,7 +1569,7 @@ async function checkin(id) {
     <div class="row">${pending ? '' : `<button class="btn sm" id="ren">${icon('pin')}修改地點</button>`}${inDaily ? '' : `<button class="btn sm" id="todaily">${icon('flower')}移到日常</button>`}${c.lat != null ? `<a class="btn sm" href="${amapLink(c.lat, c.lng, c.placeName)}" target="_blank" rel="noopener">${icon('map')}在高德地圖開啟</a>` : ''}</div>
     <h2 class="h2">照片與影片 <small>${vis.length}/${MAX}・影片最多 ${MAX_VIDEOS} 支</small></h2>
     <div class="grid">
-      ${vis.map(x => `<div class="tile${x.star ? ' star' : ''}"><button class="tile-v" data-v="${x.id}" aria-label="查看">${x.thumb ? `<img src="${ou(x.thumb)}" alt="">` : `<span class="vph">${icon('play')}</span>`}${x.kind === 'video' ? `<span class="vbadge">${icon('play')}</span>` : ''}</button><button class="tile-s" data-s="${x.id}" aria-pressed="${x.star ? 'true' : 'false'}" aria-label="精選"><span class="star-badge">${icon('star')}</span></button>${x.focus ? `<i class="focus-dot" style="left:${(x.focus.x * 100).toFixed(1)}%;top:${(x.focus.y * 100).toFixed(1)}%"></i>` : ''}</div>`).join('')}
+      ${vis.map(x => `<div class="tile${x.star ? ' star' : ''}"><button class="tile-v" data-v="${x.id}" aria-label="查看">${x.thumb ? `<img src="${ou(x.thumb)}" alt=""${fpos(x)}>` : `<span class="vph">${icon('play')}</span>`}${x.kind === 'video' ? `<span class="vbadge">${icon('play')}</span>` : ''}</button><button class="tile-s" data-s="${x.id}" aria-pressed="${x.star ? 'true' : 'false'}" aria-label="精選"><span class="star-badge">${icon('star')}</span></button>${x.focus ? `<i class="focus-dot" style="left:${(x.focus.x * 100).toFixed(1)}%;top:${(x.focus.y * 100).toFixed(1)}%"></i>` : ''}</div>`).join('')}
       ${vis.length < MAX ? `<label class="tile add">${icon('plus')}<span>加照片<br>或影片</span><input type="file" accept="image/*,video/*" multiple id="f"></label>` : ''}
     </div>
     <p class="muted sm">點右上角星星設為「精選」，之後生成短片會優先使用。</p>
@@ -1596,7 +1596,7 @@ async function checkin(id) {
     toast(x.star ? '已設為精選' : '已取消精選');
     await store.updateMedia(x);
   });
-  view.querySelectorAll('[data-v]').forEach(btn => btn.onclick = () => viewer(vis.find(v => v.id === btn.dataset.v)));
+  view.querySelectorAll('[data-v]').forEach(btn => btn.onclick = () => viewer(vis.find(v => v.id === btn.dataset.v), vis, { del: true }));
   view.querySelectorAll('[data-d]').forEach(btn => btn.onclick = async () => { if (await confirmDlg('刪除這段聲音？', '刪除')) { await store.deleteMedia(btn.dataset.d); rerender(); } });
   view.querySelectorAll('[data-kv]').forEach(btn => btn.onclick = () => viewer(kidm.find(v => v.id === btn.dataset.kv)));
   if ($('#todaily')) $('#todaily').onclick = async () => {
@@ -1614,81 +1614,87 @@ async function checkin(id) {
   $('#del').onclick = delCheckin;
 }
 
-// ---------- 照片焦點：點一下要強調的位置 ----------
+// ---------- 照片焦點：點一下最想看到的地方 ----------
+// 用同一個彈出畫面，直接進入「設定焦點」
 function focusEditor(m) {
-  return new Promise(res => {
-    const src = m.kind === 'photo' ? m.blob : m.thumb;
-    if (!src) { toast('這個檔案沒有可以設定焦點的畫面'); res(false); return; }
-    const u = URL.createObjectURL(src);
-    let f = m.focus ? { ...m.focus } : null;
-    const ov = document.createElement('div');
-    ov.className = 'viewer';
-    ov.innerHTML = `<p class="fe-tip">點一下照片上最想強調的地方（例如人），短片會從那裡開始，再慢慢拉遠</p>
-      <div class="fe-wrap"><div class="fe-box"><img src="${u}" alt=""><i class="fe-dot" hidden></i></div></div>
-      <div class="viewer-bar"><button class="btn" data-a="clear">清除焦點</button><button class="btn main" data-a="ok">${icon('check')}完成</button></div>`;
-    document.body.appendChild(ov);
-    const box = ov.querySelector('.fe-box'), dot = ov.querySelector('.fe-dot');
-    const show = () => { dot.hidden = !f; if (f) { dot.style.left = (f.x * 100) + '%'; dot.style.top = (f.y * 100) + '%'; } };
-    show();
-    box.querySelector('img').onclick = e => {
-      const b = e.currentTarget.getBoundingClientRect();
-      f = { x: Math.min(1, Math.max(0, (e.clientX - b.left) / b.width)), y: Math.min(1, Math.max(0, (e.clientY - b.top) / b.height)) };
-      show();
-    };
-    ov.querySelector('[data-a="clear"]').onclick = () => { f = null; show(); };
-    ov.querySelector('[data-a="ok"]').onclick = async () => {
-      if (f) m.focus = f; else delete m.focus;
-      await store.updateMedia(m);
-      ov.remove(); URL.revokeObjectURL(u);
-      toast(f ? '已設定焦點' : '已清除焦點');
-      res(true);
-    };
-  });
+  if (!(m.kind === 'photo' ? m.blob : m.thumb)) { toast('這個檔案沒有可以設定焦點的畫面'); return Promise.resolve(false); }
+  return new Promise(res => viewer(m, null, { focusOnly: true, done: res }));
 }
 
-// 看照片／影片；給了 list 就可以左右滑看同一天的全部
-// opt.oneStar：日常用，一天只能有一張精選，點新的星星就換掉舊的
+// 照片有設焦點時，小卡片裁切以焦點為主
+const fpos = m => (m && m.focus ? ` style="object-position:${(m.focus.x * 100).toFixed(1)}% ${(m.focus.y * 100).toFixed(1)}%"` : '');
+
+// 看照片：在原本那一頁上彈出來（背景是原本的頁面，霧化），點旁邊或左上角 ✕ 收起來
+// 下方：左邊「焦點」、中間星星；opt.del 時右邊有刪除（打卡頁才有）
+// opt.oneStar：日常用，一天只能有一張精選
 function viewer(x, list, opt = {}) {
   const L = list && list.length ? list : [x];
-  let i = Math.max(0, L.indexOf(x)), u = null, changed = false;
+  let i = Math.max(0, L.indexOf(x)), u = null, changed = false, focusing = !!opt.focusOnly, f = null;
   const ov = document.createElement('div');
-  ov.className = 'viewer vw2';
+  ov.className = 'pv';
+  const pct = v => (v * 100).toFixed(1) + '%';
   const draw = () => {
     if (u) URL.revokeObjectURL(u);
-    const m = L[i]; u = URL.createObjectURL(m.blob);
-    const many = L.length > 1;
-    ov.innerHTML = `<div class="vw-stage">${m.kind === 'video' ? `<video src="${u}" controls playsinline autoplay></video>` : `<img src="${u}" alt="">`}</div>
-      <div class="vw-top"><button class="vw-ic" data-a="close" aria-label="關閉">${icon('close')}</button>${many ? `<p class="vw-cnt">${i + 1} / ${L.length}</p>` : '<span></span>'}<button class="vw-ic" data-a="more" aria-label="更多">${icon('more')}</button></div>
-      <div class="vw-menu" hidden>${m.kind === 'audio' ? '' : `<button data-a="focus">${icon('focus')}設定焦點</button>`}<button data-a="del" class="danger">${icon('trash')}刪除</button></div>
-      ${many ? `<button class="vw-nav prev" data-a="prev" aria-label="上一張" ${i === 0 ? 'hidden' : ''}>${icon('back')}</button><button class="vw-nav next" data-a="next" aria-label="下一張" ${i === L.length - 1 ? 'hidden' : ''}>${icon('back')}</button>` : ''}
-      <div class="vw-bot">${m.kind === 'audio' ? '' : `<button class="vw-star${m.star ? ' on' : ''}" data-a="star" aria-pressed="${m.star ? 'true' : 'false'}" aria-label="${m.star ? '取消精選' : '設為精選'}">${icon(m.star ? 'star' : 'star-o')}</button>`}
-        ${many && L.length <= 12 ? `<div class="vw-dots">${L.map((_, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('')}</div>` : ''}</div>`;
+    const m = L[i], many = L.length > 1 && !focusing;
+    const src = focusing && m.kind !== 'photo' ? m.thumb : m.blob;
+    u = URL.createObjectURL(src);
+    const media = m.kind === 'video' && !focusing ? `<video src="${u}" controls playsinline autoplay></video>` : `<img src="${u}" alt="">`;
+    const dot = focusing && f ? `<i class="pv-dot" style="left:${pct(f.x)};top:${pct(f.y)}"></i>` : '';
+    const bar = focusing
+      ? `<button class="pv-pill" data-a="fclear">清除</button><button class="pv-pill main" data-a="fok">${icon('check')}完成</button>`
+      : `<button class="pv-ic" data-a="focus" aria-label="設定焦點" ${m.kind === 'audio' ? 'disabled' : ''}>${icon('focus')}<small>焦點</small></button>
+         ${m.kind === 'audio' ? '<span class="pv-star-sp"></span>' : `<button class="pv-star${m.star ? ' on' : ''}" data-a="star" aria-pressed="${m.star ? 'true' : 'false'}" aria-label="${m.star ? '取消精選' : '設為精選'}">${icon(m.star ? 'star' : 'star-o')}</button>`}
+         ${opt.del ? `<button class="pv-ic del" data-a="del" aria-label="刪除">${icon('trash')}<small>刪除</small></button>` : '<span class="pv-ic sp"></span>'}`;
+    ov.innerHTML = `<button class="pv-x" data-a="close" aria-label="關閉">${icon('close')}</button>
+      ${focusing ? '<p class="pv-tip">點一下最想看到的地方（例如臉），卡片和短片都會以這裡為主</p>' : many ? `<p class="pv-cnt">${i + 1} / ${L.length}</p>` : ''}
+      <div class="pv-ph${focusing ? ' focusing' : ''}">${media}${dot}</div>
+      ${many && L.length <= 12 ? `<div class="pv-dots">${L.map((_, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('')}</div>` : ''}
+      <div class="pv-bar">${bar}</div>`;
   };
+  const startFocus = () => { const m = L[i]; f = m.focus ? { ...m.focus } : null; focusing = true; draw(); };
+  const endFocus = ok => {
+    if (opt.focusOnly) { close(); opt.done && opt.done(ok); return; }
+    focusing = false; draw();
+  };
+  if (focusing) { f = x.focus ? { ...x.focus } : null; }
   draw();
   document.body.appendChild(ov);
-  const menu = () => ov.querySelector('.vw-menu');
-  const close = () => { ov.remove(); if (u) URL.revokeObjectURL(u); if (changed) rerender(); };
+  requestAnimationFrame(() => ov.classList.add('in'));
+  const close = () => { ov.classList.remove('in'); setTimeout(() => { ov.remove(); if (u) URL.revokeObjectURL(u); }, 180); if (changed) rerender(); };
   const go = d => { const n = i + d; if (n < 0 || n >= L.length) return; i = n; draw(); };
-  let sx = null;
+  let sx = null, swT = 0;
   ov.addEventListener('touchstart', e => { sx = e.touches[0].clientX; }, { passive: true });
-  ov.addEventListener('touchend', e => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx; sx = null; if (Math.abs(dx) > 50 && menu().hidden) go(dx < 0 ? 1 : -1); });
+  ov.addEventListener('touchend', e => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx; sx = null; if (Math.abs(dx) > 50 && !focusing) { swT = Date.now(); go(dx < 0 ? 1 : -1); } });
   ov.onclick = async e => {
+    if (Date.now() - swT < 400) return;
     const a = e.target.closest('[data-a]')?.dataset.a;
-    if (!menu().hidden && a !== 'more') { menu().hidden = true; if (!a || a === 'prev' || a === 'next' || a === 'star') return; }
-    if (a === 'close') close();
-    if (a === 'more') menu().hidden = !menu().hidden;
-    if (a === 'prev') go(-1);
-    if (a === 'next') go(1);
+    // 設定焦點：點照片放點
+    if (focusing && !a && e.target.closest('.pv-ph img')) {
+      const b = e.target.getBoundingClientRect();
+      f = { x: Math.min(1, Math.max(0, (e.clientX - b.left) / b.width)), y: Math.min(1, Math.max(0, (e.clientY - b.top) / b.height)) };
+      draw(); return;
+    }
+    // 點旁邊空白：收起來（設定焦點時＝取消）
+    if (!a) { if (e.target.closest('.pv-ph, .pv-bar, .pv-dots')) return; if (focusing) endFocus(false); else close(); return; }
+    if (a === 'close') { if (focusing && opt.focusOnly) { endFocus(false); return; } close(); }
+    if (a === 'focus') startFocus();
+    if (a === 'fclear') { f = null; draw(); }
+    if (a === 'fok') {
+      const m = L[i];
+      if (f) m.focus = f; else delete m.focus;
+      await store.updateMedia(m); changed = !opt.focusOnly;
+      toast(f ? '已設定焦點' : '已清除焦點');
+      endFocus(true);
+    }
     if (a === 'star') {
       const m = L[i]; m.star = !m.star;
       if (m.star && opt.oneStar) for (const o of L) if (o !== m && o.star) { o.star = false; await store.updateMedia(o); }
       await store.updateMedia(m); changed = true;
       toast(m.star ? (opt.oneStar ? '已設為這天的精選，會排在第一張' : '已設為精選') : '已取消精選');
       draw();
-      if (m.star) ov.querySelector('.vw-star')?.classList.add('pop');
+      if (m.star) ov.querySelector('.pv-star')?.classList.add('pop');
     }
-    if (a === 'focus') { const m = L[i]; ov.remove(); if (u) URL.revokeObjectURL(u); if ((await focusEditor(m)) || changed) rerender(); }
-    if (a === 'del' && (await confirmDlg('刪除這個檔案？', '刪除'))) { await store.deleteMedia(L[i].id); close(); rerender(); }
+    if (a === 'del' && (await confirmDlg('刪除這個檔案？', '刪除'))) { await store.deleteMedia(L[i].id); changed = true; close(); }
   };
 }
 
